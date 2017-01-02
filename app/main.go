@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,6 +28,7 @@ func onInterruptSignal(fn func()) {
 }
 
 func main() {
+	log.SetLevel(log.DebugLevel)
 	processor := freki.New()
 
 	err := processor.Init()
@@ -42,10 +44,12 @@ func main() {
 
 	// TODO: move
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Hello on port %d", 0)
+		host, port, _ := net.SplitHostPort(r.RemoteAddr)
+		md := processor.Connections.GetByRemoteAddr(host, port)
+		fmt.Fprintf(w, "Hello on port %d\n", md.TargetPort)
 	})
 
-	go http.ListenAndServe(":8080", nil)
+	go http.ListenAndServe("localhost:8080", nil)
 
 	// TODO: pass in stop channel
 	processor.Start()

@@ -1,6 +1,7 @@
 package freki
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 	"sync"
@@ -21,25 +22,22 @@ func genRule(protocol, queuespec string) []string {
 
 var processor *Processor
 
-type ckey [2]gopacket.Flow
-
-func (k *ckey) String() string {
-	return fmt.Sprintf("%s:%s", k[0], k[1])
-}
+// type ckey [2]uint64
 
 type Processor struct {
 	ipt         *iptables.IPTables
 	rules       [][]string
 	nfq         *nfqueue.Queue
 	cleanupOnce sync.Once
-
-	incoming map[ckey]uint16
+	// incoming    map[ckey]uint16
+	Connections *connTable
 }
 
 func New() *Processor {
 	processor = &Processor{
-		rules:    make([][]string, 0),
-		incoming: make(map[ckey]uint16, 1024),
+		rules: make([][]string, 0),
+		// incoming:    make(map[ckey]uint16, 1024),
+		Connections: newConnTable(),
 	}
 
 	// TODO: customize protocols
@@ -131,6 +129,7 @@ func (p *Processor) Init() (err error) {
 }
 
 func (p *Processor) Cleanup() (err error) {
+	// debug.PrintStack()
 	p.cleanupOnce.Do(func() {
 		err = p.cleanup()
 	})
@@ -181,6 +180,7 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 		}
 	}()
 
+	// TODO: set DecodeOptions
 	packet := gopacket.NewPacket(payload.Data, layers.LayerTypeIPv4, gopacket.Default)
 
 	var (
@@ -216,28 +216,28 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 		case layers.LayerTypeTCP:
 			// log.Infof("body: %+v", body)
 			if tcp.DstPort >= 1000 && tcp.DstPort < 2000 {
-				dstPort := uint16(tcp.DstPort)
-
-				if tcp.SYN {
-
-				} else {
-
+				if tcp.SYN && !tcp.ACK {
+					p.Connections.Register(ip.NetworkFlow(), tcp.TransportFlow(), tcp.DstPort)
 				}
+
 				tcp.DstPort = 8080
-				k := ckey{ip.NetworkFlow(), tcp.TransportFlow()}
-
-				p.incoming[k] = dstPort
-
-				log.Infof("%+v, %+v", ip.NetworkFlow(), tcp.TransportFlow())
-				log.Infof("%+v", p.incoming)
 
 				// TODO: move into sendNewPacket
 				tcp.SetNetworkLayerForChecksum(&ip)
 				p.sendNewPacket(buffer, payload, &ip, &tcp, &body)
+				modified = true
+
 				return
 			} else if tcp.SrcPort == 8080 {
-				k := ckey{ip.NetworkFlow().Reverse(), tcp.TransportFlow().Reverse()}
-				log.Infof("%d", p.incoming[k])
+				md := p.Connections.GetByFlow(ip.NetworkFlow(), tcp.TransportFlow())
+
+				tcp.SrcPort = md.TargetPort
+
+				tcp.SetNetworkLayerForChecksum(&ip)
+				p.sendNewPacket(buffer, payload, &ip, &tcp, &body)
+				modified = true
+
+				return
 			}
 			//case layers.LayerTypeICMPv4:
 			//	log.Infof("%+v", icmp,)
@@ -251,8 +251,12 @@ func routeOnPacket(payload *nfqueue.Payload) int {
 	return processor.onPacket(payload)
 }
 
-/*
 func newTransportFlow(tcp layers.TCP) gopacket.Flow {
-	return gopacket.NewFlow(layers.EndpointTCPPort, tcp.SrcPort, tcp.DstPort)
+	s := make([]byte, 2)
+	d := make([]byte, 2)
+
+	binary.BigEndian.PutUint16(s, uint16(tcp.SrcPort))
+	binary.BigEndian.PutUint16(d, uint16(tcp.DstPort))
+
+	return gopacket.NewFlow(layers.EndpointTCPPort, s, d)
 }
-*/
