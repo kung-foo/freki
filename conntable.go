@@ -8,15 +8,38 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	log "github.com/sirupsen/logrus"
 )
 
-var localhost = layers.NewIPEndpoint(net.ParseIP("127.0.0.1").To4())
+var localhostEndpoint = layers.NewIPEndpoint(localhost)
 
 type ckey [2]uint64
+
+func NewConnKeyByEndpoints(clientAddr gopacket.Endpoint, clientPort gopacket.Endpoint) ckey {
+	if clientAddr.EndpointType() != layers.EndpointIPv4 {
+		panic("clientAddr endpoint must be of type layers.EndpointIPv4")
+	}
+
+	if clientPort.EndpointType() != layers.EndpointTCPPort {
+		panic("clientPort endpoint must be of type layers.EndpointTCPPort")
+	}
+
+	// log.Debugf("NewConnKeyByEndpoints(%v, %v)", clientAddr, clientPort)
+
+	return ckey{clientAddr.FastHash(), clientPort.FastHash()}
+}
+
+func NewConnKeyByString(host, port string) ckey {
+	clientAddr := layers.NewIPEndpoint(net.ParseIP(host).To4())
+	p, _ := strconv.Atoi(port)
+	clientPort := layers.NewTCPPortEndpoint(layers.TCPPort(p))
+	return NewConnKeyByEndpoints(clientAddr, clientPort)
+}
 
 type metadata struct {
 	added      time.Time
 	TargetPort layers.TCPPort
+	TargetIP   net.IP
 }
 
 type connTable struct {
@@ -31,34 +54,38 @@ func newConnTable() *connTable {
 	return ct
 }
 
-func (t *connTable) Register(network, transport gopacket.Flow, targetPort layers.TCPPort) {
+func (t *connTable) Register(ck ckey, targetPort layers.TCPPort, targetIP net.IP) {
 	t.mtx.Lock()
 	defer t.mtx.Unlock()
 
-	ck := ckey{network.FastHash(), transport.Src().FastHash()}
-
-	t.table[ck] = metadata{
-		added:      time.Now(),
-		TargetPort: targetPort,
+	if _, ok := t.table[ck]; ok {
+		// log.Errorf("Connection already registered: %s %s", network.String(), transport.Src().String())
+	} else {
+		t.table[ck] = metadata{
+			added:      time.Now(),
+			TargetPort: targetPort,
+			TargetIP:   targetIP,
+		}
 	}
 }
 
-// TODO: how should I make this clear that I am assuming the _reverse_ direction?
-func (t *connTable) GetByFlow(network, transport gopacket.Flow) metadata {
-	t.mtx.RLock()
-	defer t.mtx.RUnlock()
+func (t *connTable) FlushOlderThan(s time.Duration) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
 
-	ck := ckey{network.FastHash(), transport.Dst().FastHash()}
-	//log.Infof("%+v %+v", network, t.table[ck])
+	threshold := time.Now().Add(-1 * s)
 
-	return t.table[ck]
+	log.Debugf("conntable sz: %d", len(t.table))
+
+	for ck, md := range t.table {
+		if md.added.Before(threshold) {
+			delete(t.table, ck)
+		}
+	}
 }
 
-// TODO: de-uglify
-func (t *connTable) GetByRemoteAddr(host, port string) metadata {
-	n, _ := gopacket.FlowFromEndpoints(layers.NewIPEndpoint(net.ParseIP(host).To4()), localhost)
-	p, _ := strconv.Atoi(port)
-	tcp := gopacket.NewFlow(layers.EndpointTCPPort, nil, layers.NewTCPPortEndpoint(layers.TCPPort(p)).Raw())
-
-	return t.GetByFlow(n, tcp)
+func (t *connTable) GetByFlow(ck ckey) metadata {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+	return t.table[ck]
 }

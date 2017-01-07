@@ -1,11 +1,13 @@
 package freki
 
 import (
-	"encoding/binary"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/gopacket"
@@ -14,7 +16,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var chains = []string{"INPUT", "OUTPUT"}
+const table = "raw"
+
+//const table = "filter"
+
+var chains = []string{"PREROUTING", "OUTPUT"}
+
+//var chains = []string{"INPUT", "POSTROUTING"}
 
 func genRule(protocol, queuespec string) []string {
 	return strings.Split(fmt.Sprintf("-p,%s,-j,NFQUEUE,--queue-num,%s", protocol, queuespec), ",")
@@ -22,29 +30,30 @@ func genRule(protocol, queuespec string) []string {
 
 var processor *Processor
 
-// type ckey [2]uint64
-
 type Processor struct {
-	ipt         *iptables.IPTables
-	rules       [][]string
-	nfq         *nfqueue.Queue
-	cleanupOnce sync.Once
-	// incoming    map[ckey]uint16
-	Connections *connTable
+	ipt              *iptables.IPTables
+	rules            [][]string
+	nfq              *nfqueue.Queue
+	cleanupOnce      sync.Once
+	Connections      *connTable
+	packetsProcessed uint64
+	stop             chan struct{}
+	publicAddr       net.IP
 }
 
 func New() *Processor {
 	processor = &Processor{
-		rules: make([][]string, 0),
-		// incoming:    make(map[ckey]uint16, 1024),
+		rules:       make([][]string, 0),
 		Connections: newConnTable(),
+		stop:        make(chan struct{}),
+		publicAddr:  getLocalIP(),
 	}
 
 	// TODO: customize protocols
 	processor.rules = append(processor.rules,
 		genRule("tcp", "0"),
-		genRule("udp", "0"),
-		genRule("icmp", "0"),
+		// genRule("udp", "0"),
+		// genRule("icmp", "0"),
 	)
 
 	return processor
@@ -53,7 +62,22 @@ func New() *Processor {
 func (p *Processor) initIPTables() (err error) {
 	for _, rule := range p.rules {
 		for _, chain := range chains {
-			err = p.ipt.AppendUnique("filter", chain, rule...)
+			/*
+				var tmp []string
+				if chain == "PREROUTING" {
+					tmp = append([]string{"-i", "eth0"}, rule...)
+				} else {
+					tmp = append([]string{"-o", "eth0"}, rule...)
+				}
+			*/
+			/*
+				err = p.ipt.AppendUnique(table, chain, "-j", "LOG", "--log-prefix", fmt.Sprintf("%s: ", chain))
+				if err != nil {
+					log.Error(err)
+				}
+			*/
+
+			err = p.ipt.AppendUnique(table, chain, rule...)
 			if err != nil {
 				return
 			}
@@ -65,9 +89,20 @@ func (p *Processor) initIPTables() (err error) {
 func (p *Processor) resetIPTables() (err error) {
 	for _, rule := range p.rules {
 		for _, chain := range chains {
-			err = p.ipt.Delete("filter", chain, rule...)
+			/*
+				var tmp []string
+				if chain == "PREROUTING" {
+					tmp = append([]string{"-i", "eth0"}, rule...)
+				} else {
+					tmp = append([]string{"-o", "eth0"}, rule...)
+				}
+			*/
+
+			// p.ipt.Delete(table, chain, "-j", "LOG", "--log-prefix", fmt.Sprintf("%s: ", chain))
+
+			err = p.ipt.Delete(table, chain, rule...)
 			if err != nil {
-				log.Errorf("error deleting \"filter %s\": %v", chain, err)
+				log.Errorf("error deleting \"%s %s\": %v", table, chain, err)
 				// return
 			}
 		}
@@ -94,8 +129,8 @@ func (p *Processor) Init() (err error) {
 	}
 
 	for _, chain := range chains {
-		filters, _ := p.ipt.List("filter", chain)
-		log.Debugf("filter %s %+v", chain, filters)
+		filters, _ := p.ipt.List(table, chain)
+		log.Debugf("%s %s %+v", table, chain, filters)
 	}
 
 	p.nfq = new(nfqueue.Queue)
@@ -128,6 +163,15 @@ func (p *Processor) Init() (err error) {
 	return
 }
 
+func (p *Processor) PacketsProcessed() uint64 {
+	return atomic.LoadUint64(&p.packetsProcessed)
+}
+
+func (p *Processor) Stop() (err error) {
+	close(p.stop)
+	return
+}
+
 func (p *Processor) Cleanup() (err error) {
 	// debug.PrintStack()
 	p.cleanupOnce.Do(func() {
@@ -139,45 +183,94 @@ func (p *Processor) Cleanup() (err error) {
 func (p *Processor) cleanup() (err error) {
 	log.Debug("Processor:cleanup()")
 
+	p.resetIPTables()
+
 	if p.nfq != nil {
 		p.nfq.Close()
 	}
 
-	p.resetIPTables()
-
 	for _, chain := range chains {
-		filters, _ := p.ipt.List("filter", chain)
-		log.Debugf("filter %s %+v", chain, filters)
+		filters, _ := p.ipt.List(table, chain)
+		log.Debugf("%s %s %+v", table, chain, filters)
 	}
 	return
 }
 
 // TODO: stop chan struct{}
 func (p *Processor) Start() (err error) {
+	log.Infof("starting freki on %s", p.publicAddr)
+
+	go func() {
+		ticker := time.NewTicker(time.Second * 5)
+		for {
+			select {
+			case <-ticker.C:
+				p.Connections.FlushOlderThan(time.Second * 60)
+			case <-p.stop:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+
 	p.nfq.TryRun()
 	return
 }
 
-func (p *Processor) sendNewPacket(buffer gopacket.SerializeBuffer, payload *nfqueue.Payload, layers ...gopacket.SerializableLayer) {
-	err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true}, layers...)
-	if err != nil {
-		log.Error(err)
+const hijackTCPServerPort = 6000
+
+var localhost = net.ParseIP("127.0.0.1")
+
+func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, ip *layers.IPv4, tcp *layers.TCP, body *gopacket.Payload) (err error) {
+	// TODO: better check
+
+	//me := net.ParseIP("85.165.144.11")
+
+	if ip.SrcIP.Equal(p.publicAddr) {
+		// packets back to client
+		if tcp.SrcPort != hijackTCPServerPort {
+			payload.SetVerdict(nfqueue.NF_ACCEPT)
+			return
+		}
+		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Dst(), tcp.TransportFlow().Dst())
+		md := p.Connections.GetByFlow(ck)
+
+		//log.Debugf("outboud %+v %+v", ip, tcp)
+
+		tcp.SrcPort = md.TargetPort
+	} else {
+		// packets to honeypot
+		if tcp.DstPort == 22 {
+			payload.SetVerdict(nfqueue.NF_ACCEPT)
+			return
+		}
+
+		tcp.DstPort = hijackTCPServerPort
 	}
+
+	tcp.SetNetworkLayerForChecksum(ip)
+	buffer := gopacket.NewSerializeBuffer()
+
+	err = gopacket.SerializeLayers(
+		buffer,
+		gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
+		ip, tcp, body,
+	)
+
+	if err != nil {
+		return
+	}
+
+	err = payload.SetVerdictModified(nfqueue.NF_ACCEPT, buffer.Bytes())
+
+	return
 }
 
 func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 	retVal = 0 // see: https://www.netfilter.org/projects/libnetfilter_queue/doxygen/group__Queue.html
-	verdict := nfqueue.NF_ACCEPT
-	modified := false
-	buffer := gopacket.NewSerializeBuffer()
-
 	// TODO: remove defer
 	defer func() {
-		if modified {
-			payload.SetVerdictModified(verdict, buffer.Bytes())
-		} else {
-			payload.SetVerdict(verdict)
-		}
+		atomic.AddUint64(&p.packetsProcessed, 1)
 	}()
 
 	// TODO: set DecodeOptions
@@ -188,7 +281,6 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 		tcp  layers.TCP
 		udp  layers.UDP
 		icmp layers.ICMPv4
-		dns  layers.DNS
 		body gopacket.Payload
 	)
 
@@ -198,7 +290,6 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 		&tcp,
 		&udp,
 		&icmp,
-		&dns,
 		&body)
 
 	var foundLayerTypes []gopacket.LayerType
@@ -206,6 +297,7 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 
 	if err != nil {
 		log.Error(err, foundLayerTypes)
+		payload.SetVerdict(nfqueue.NF_ACCEPT)
 		return
 	}
 
@@ -214,36 +306,36 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 		//case layers.LayerTypeDNS:
 		//	log.Infof("%+v", dns.Questions)
 		case layers.LayerTypeTCP:
-			// log.Infof("body: %+v", body)
-			if tcp.DstPort >= 1000 && tcp.DstPort < 2000 {
-				if tcp.SYN && !tcp.ACK {
-					p.Connections.Register(ip.NetworkFlow(), tcp.TransportFlow(), tcp.DstPort)
+
+			// example drop
+			/*
+				if tcp.DstPort == 4000 {
+					payload.SetVerdict(nfqueue.NF_DROP)
+					return
 				}
+			*/
 
-				tcp.DstPort = 8080
-
-				// TODO: move into sendNewPacket
-				tcp.SetNetworkLayerForChecksum(&ip)
-				p.sendNewPacket(buffer, payload, &ip, &tcp, &body)
-				modified = true
-
-				return
-			} else if tcp.SrcPort == 8080 {
-				md := p.Connections.GetByFlow(ip.NetworkFlow(), tcp.TransportFlow())
-
-				tcp.SrcPort = md.TargetPort
-
-				tcp.SetNetworkLayerForChecksum(&ip)
-				p.sendNewPacket(buffer, payload, &ip, &tcp, &body)
-				modified = true
-
-				return
+			// TODO: validate
+			if tcp.SYN && !tcp.ACK {
+				// when i don't respond to a SYN, then a duplicate SYN is sent
+				ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
+				p.Connections.Register(ck, tcp.DstPort, ip.DstIP.To4())
 			}
+
+			err = p.hijackTCP(payload, packet, &ip, &tcp, &body)
+
+			if err != nil {
+				log.Error(err)
+			}
+
+			return
+
 			//case layers.LayerTypeICMPv4:
 			//	log.Infof("%+v", icmp,)
 		}
 	}
 
+	payload.SetVerdict(nfqueue.NF_ACCEPT)
 	return
 }
 
@@ -251,12 +343,17 @@ func routeOnPacket(payload *nfqueue.Payload) int {
 	return processor.onPacket(payload)
 }
 
-func newTransportFlow(tcp layers.TCP) gopacket.Flow {
-	s := make([]byte, 2)
-	d := make([]byte, 2)
-
-	binary.BigEndian.PutUint16(s, uint16(tcp.SrcPort))
-	binary.BigEndian.PutUint16(d, uint16(tcp.DstPort))
-
-	return gopacket.NewFlow(layers.EndpointTCPPort, s, d)
+func getLocalIP() net.IP {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP
+			}
+		}
+	}
+	return nil
 }
