@@ -222,9 +222,11 @@ const hijackTCPServerPort = 6000
 var localhost = net.ParseIP("127.0.0.1")
 
 func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, ip *layers.IPv4, tcp *layers.TCP, body *gopacket.Payload) (err error) {
-	// TODO: better check
-
-	//me := net.ParseIP("85.165.144.11")
+	/*
+		if tcp.SrcPort != 22 && tcp.DstPort != 22 {
+			log.Debugf("packet %+v %+v", ip, tcp)
+		}
+	*/
 
 	if ip.SrcIP.Equal(p.publicAddr) {
 		// packets back to client
@@ -232,8 +234,15 @@ func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, 
 			payload.SetVerdict(nfqueue.NF_ACCEPT)
 			return
 		}
+
 		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Dst(), tcp.TransportFlow().Dst())
 		md := p.Connections.GetByFlow(ck)
+
+		if md == nil {
+			// not tracking
+			payload.SetVerdict(nfqueue.NF_ACCEPT)
+			return
+		}
 
 		//log.Debugf("outboud %+v %+v", ip, tcp)
 
@@ -241,6 +250,15 @@ func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, 
 	} else {
 		// packets to honeypot
 		if tcp.DstPort == 22 {
+			payload.SetVerdict(nfqueue.NF_ACCEPT)
+			return
+		}
+
+		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
+		md := p.Connections.GetByFlow(ck)
+
+		if md == nil {
+			// not tracking
 			payload.SetVerdict(nfqueue.NF_ACCEPT)
 			return
 		}

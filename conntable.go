@@ -43,13 +43,13 @@ type metadata struct {
 }
 
 type connTable struct {
-	table map[ckey]metadata
+	table map[ckey]*metadata
 	mtx   sync.RWMutex
 }
 
 func newConnTable() *connTable {
 	ct := &connTable{
-		table: make(map[ckey]metadata, 1024),
+		table: make(map[ckey]*metadata, 1024),
 	}
 	return ct
 }
@@ -61,7 +61,7 @@ func (t *connTable) Register(ck ckey, targetPort layers.TCPPort, targetIP net.IP
 	if _, ok := t.table[ck]; ok {
 		// log.Errorf("Connection already registered: %s %s", network.String(), transport.Src().String())
 	} else {
-		t.table[ck] = metadata{
+		t.table[ck] = &metadata{
 			added:      time.Now(),
 			TargetPort: targetPort,
 			TargetIP:   targetIP,
@@ -84,7 +84,7 @@ func (t *connTable) FlushOlderThan(s time.Duration) {
 	}
 }
 
-func (t *connTable) GetByFlow(ck ckey) metadata {
+func (t *connTable) GetByFlow(ck ckey) *metadata {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
 	return t.table[ck]

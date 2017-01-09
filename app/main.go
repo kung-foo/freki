@@ -30,7 +30,7 @@ func onInterruptSignal(fn func()) {
 }
 
 func main() {
-	//log.SetLevel(log.DebugLevel)
+	// log.SetLevel(log.DebugLevel)
 
 	processor := freki.New()
 
