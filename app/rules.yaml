@@ -1,0 +1,10 @@
+hijackTCPServerPort: 5000
+
+ports:
+    22:
+      type: tcp_proxy
+      target: localhost:22
+    80:
+      type: hijack
+    5001:
+      type: passthrough

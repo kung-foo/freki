@@ -30,9 +30,24 @@ func genRule(protocol, queuespec string) []string {
 
 var processor *Processor
 
+// PortRule represents the handling rule associated with a port
+type PortRule struct {
+	// tcp_proxy, hijack, passthrough
+	Type string `json:"type"`
+	// for tcp_proxy type
+	Target string `json:"target"`
+}
+
+// PortRules contains a port -> Rule mapping
+type PortRules struct {
+	HijackTCPServerPort int              `json:"hijackTCPServerPort"`
+	Ports               map[int]PortRule `json:"ports"`
+}
+
 type Processor struct {
 	ipt              *iptables.IPTables
 	rules            [][]string
+	portRules        PortRules
 	nfq              *nfqueue.Queue
 	cleanupOnce      sync.Once
 	Connections      *connTable
@@ -43,7 +58,11 @@ type Processor struct {
 
 func New() *Processor {
 	processor = &Processor{
-		rules:       make([][]string, 0),
+		rules: make([][]string, 0),
+		portRules: PortRules{
+			// Set a default port for the TCP hijack server
+			HijackTCPServerPort: 6000,
+		},
 		Connections: newConnTable(),
 		stop:        make(chan struct{}),
 		publicAddr:  getLocalIP(),
@@ -217,9 +236,11 @@ func (p *Processor) Start() (err error) {
 	return
 }
 
-const hijackTCPServerPort = 6000
-
 var localhost = net.ParseIP("127.0.0.1")
+
+func (p *Processor) SetPortRules(portRules PortRules) {
+	p.portRules = portRules
+}
 
 func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, ip *layers.IPv4, tcp *layers.TCP, body *gopacket.Payload) (err error) {
 	/*
@@ -230,7 +251,7 @@ func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, 
 
 	if ip.SrcIP.Equal(p.publicAddr) {
 		// packets back to client
-		if tcp.SrcPort != hijackTCPServerPort {
+		if tcp.SrcPort != layers.TCPPort(p.portRules.HijackTCPServerPort) {
 			payload.SetVerdict(nfqueue.NF_ACCEPT)
 			return
 		}
@@ -248,22 +269,30 @@ func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, 
 
 		tcp.SrcPort = md.TargetPort
 	} else {
-		// packets to honeypot
-		if tcp.DstPort == 22 {
-			payload.SetVerdict(nfqueue.NF_ACCEPT)
-			return
+		// handling packets
+		if rule, ok := p.portRules.Ports[int(tcp.DstPort)]; ok {
+
+			switch rule.Type {
+			case "passthrough":
+				payload.SetVerdict(nfqueue.NF_ACCEPT)
+				return
+			case "hijack":
+				tcp.DstPort = layers.TCPPort(p.portRules.HijackTCPServerPort)
+			default:
+				// TODO: Configure behaviour
+				// payload.SetVerdict(nfqueue.NF_ACCEPT); return
+				// payload.SetVerdict(nfqueue.NF_DROP); return
+			}
+
+			ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
+			md := p.Connections.GetByFlow(ck)
+
+			if md == nil {
+				// not tracking
+				payload.SetVerdict(nfqueue.NF_ACCEPT)
+				return
+			}
 		}
-
-		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
-		md := p.Connections.GetByFlow(ck)
-
-		if md == nil {
-			// not tracking
-			payload.SetVerdict(nfqueue.NF_ACCEPT)
-			return
-		}
-
-		tcp.DstPort = hijackTCPServerPort
 	}
 
 	tcp.SetNetworkLayerForChecksum(ip)
@@ -274,12 +303,14 @@ func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, 
 		gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
 		ip, tcp, body,
 	)
-
 	if err != nil {
-		return
+		return err
 	}
 
 	err = payload.SetVerdictModified(nfqueue.NF_ACCEPT, buffer.Bytes())
+	if err != nil {
+		return err
+	}
 
 	return
 }
