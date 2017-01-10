@@ -8,10 +8,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	log "github.com/sirupsen/logrus"
 )
-
-var localhostEndpoint = layers.NewIPEndpoint(localhost)
 
 type ckey [2]uint64
 
@@ -23,8 +20,6 @@ func NewConnKeyByEndpoints(clientAddr gopacket.Endpoint, clientPort gopacket.End
 	if clientPort.EndpointType() != layers.EndpointTCPPort {
 		panic("clientPort endpoint must be of type layers.EndpointTCPPort")
 	}
-
-	// log.Debugf("NewConnKeyByEndpoints(%v, %v)", clientAddr, clientPort)
 
 	return ckey{clientAddr.FastHash(), clientPort.FastHash()}
 }
@@ -59,7 +54,7 @@ func (t *connTable) Register(ck ckey, targetPort layers.TCPPort, targetIP net.IP
 	defer t.mtx.Unlock()
 
 	if _, ok := t.table[ck]; ok {
-		// log.Errorf("Connection already registered: %s %s", network.String(), transport.Src().String())
+		// TODO: wut?
 	} else {
 		t.table[ck] = &metadata{
 			added:      time.Now(),
@@ -74,8 +69,6 @@ func (t *connTable) FlushOlderThan(s time.Duration) {
 	defer t.mtx.Unlock()
 
 	threshold := time.Now().Add(-1 * s)
-
-	log.Debugf("conntable sz: %d", len(t.table))
 
 	for ck, md := range t.table {
 		if md.added.Before(threshold) {
