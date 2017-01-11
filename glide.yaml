@@ -1,4 +1,8 @@
 package: github.com/kung-foo/freki
+license: MIT
+owners:
+- name: Jonathan Camp
+  email: me@jonathan.camp
 ignore:
 - github.com/kung-foo/nfqueue-go/test_nfqueue
 - github.com/kung-foo/nfqueue-go/test_nfqueue_gopacket

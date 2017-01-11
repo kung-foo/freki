@@ -31,8 +31,10 @@ func onInterruptSignal(fn func()) {
 
 func main() {
 	// log.SetLevel(log.DebugLevel)
+	logger := log.New()
+	logger.Level = log.DebugLevel
 
-	processor := freki.New()
+	processor := freki.New(logger)
 
 	err := processor.Init()
 	onErrorExit(err)

@@ -9,20 +9,19 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/net/bpf"
+
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/google/gopacket/pcap"
+	"github.com/kung-foo/freki/netfilter"
 	"github.com/kung-foo/nfqueue-go/nfqueue"
-	log "github.com/sirupsen/logrus"
 )
 
 const table = "raw"
 
-//const table = "filter"
-
 var chains = []string{"PREROUTING", "OUTPUT"}
-
-//var chains = []string{"INPUT", "POSTROUTING"}
 
 func genRule(protocol, queuespec string) []string {
 	return strings.Split(fmt.Sprintf("-p,%s,-j,NFQUEUE,--queue-num,%s", protocol, queuespec), ",")
@@ -45,6 +44,7 @@ type PortRules struct {
 }
 
 type Processor struct {
+	log              Logger
 	ipt              *iptables.IPTables
 	rules            [][]string
 	portRules        PortRules
@@ -56,8 +56,9 @@ type Processor struct {
 	publicAddr       net.IP
 }
 
-func New() *Processor {
+func New(logger Logger) *Processor {
 	processor = &Processor{
+		log:   logger,
 		rules: make([][]string, 0),
 		portRules: PortRules{
 			// Set a default port for the TCP hijack server
@@ -81,21 +82,6 @@ func New() *Processor {
 func (p *Processor) initIPTables() (err error) {
 	for _, rule := range p.rules {
 		for _, chain := range chains {
-			/*
-				var tmp []string
-				if chain == "PREROUTING" {
-					tmp = append([]string{"-i", "eth0"}, rule...)
-				} else {
-					tmp = append([]string{"-o", "eth0"}, rule...)
-				}
-			*/
-			/*
-				err = p.ipt.AppendUnique(table, chain, "-j", "LOG", "--log-prefix", fmt.Sprintf("%s: ", chain))
-				if err != nil {
-					log.Error(err)
-				}
-			*/
-
 			err = p.ipt.AppendUnique(table, chain, rule...)
 			if err != nil {
 				return
@@ -108,21 +94,9 @@ func (p *Processor) initIPTables() (err error) {
 func (p *Processor) resetIPTables() (err error) {
 	for _, rule := range p.rules {
 		for _, chain := range chains {
-			/*
-				var tmp []string
-				if chain == "PREROUTING" {
-					tmp = append([]string{"-i", "eth0"}, rule...)
-				} else {
-					tmp = append([]string{"-o", "eth0"}, rule...)
-				}
-			*/
-
-			// p.ipt.Delete(table, chain, "-j", "LOG", "--log-prefix", fmt.Sprintf("%s: ", chain))
-
 			err = p.ipt.Delete(table, chain, rule...)
 			if err != nil {
-				log.Errorf("error deleting \"%s %s\": %v", table, chain, err)
-				// return
+				p.log.Errorf("error deleting \"%s %s\": %v", table, chain, err)
 			}
 		}
 	}
@@ -149,7 +123,25 @@ func (p *Processor) Init() (err error) {
 
 	for _, chain := range chains {
 		filters, _ := p.ipt.List(table, chain)
-		log.Debugf("%s %s %+v", table, chain, filters)
+		p.log.Debugf("%s %s %+v", table, chain, filters)
+	}
+
+	// DEMO!!!
+	if true {
+		nfq2, err := netfilter.NewNFQueue(0, 100, netfilter.NF_DEFAULT_PACKET_SIZE)
+		if err != nil {
+			p.log.Error(err)
+		}
+
+		go func() {
+			for p := range nfq2.Packets() {
+				nfq2.SetVerdict(p, netfilter.NF_ACCEPT)
+			}
+		}()
+
+		time.Sleep(time.Second * 10)
+
+		nfq2.Close()
 	}
 
 	p.nfq = new(nfqueue.Queue)
@@ -179,6 +171,34 @@ func (p *Processor) Init() (err error) {
 		return
 	}
 
+	/*
+		h, err := pcap.OpenLive("wlan0", 1, false, time.Second)
+		if err != nil {
+			p.log.Error(err)
+		}
+
+		instuctions, err := h.CompileBPFFilter("tcp portrange 9000-9200")
+		if err != nil {
+			p.log.Error(err)
+		}
+
+		if h != nil {
+			h.Close()
+		}
+
+		vm := pcapBPFToXNetBPF(instuctions)
+
+		out, err := vm.Run([]byte{
+			0xcc, 0x5d, 0x4e, 0x06, 0x51, 0x9b, 0x88, 0x53, 0x2e, 0x69, 0x37, 0x64, 0x08, 0x00, 0x45, 0x00,
+			0x00, 0x3c, 0x6d, 0xc8, 0x40, 0x00, 0x40, 0x06, 0x98, 0xea, 0xc0, 0xa8, 0x00, 0x50, 0x34, 0xd6,
+			0x3e, 0x3b, 0x80, 0xc0, 0x23, 0xf0, 0xb4, 0xd9, 0x20, 0x79, 0x00, 0x00, 0x00, 0x00, 0xa0, 0x02,
+			0x72, 0x10, 0xd9, 0xb9, 0x00, 0x00, 0x02, 0x04, 0x05, 0xb4, 0x04, 0x02, 0x08, 0x0a, 0x00, 0x78,
+			0x4d, 0xb1, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x03, 0x07,
+		})
+
+		p.log.Infof("%v %v", out, err)
+	*/
+
 	return
 }
 
@@ -200,7 +220,7 @@ func (p *Processor) Cleanup() (err error) {
 }
 
 func (p *Processor) cleanup() (err error) {
-	log.Debug("Processor:cleanup()")
+	p.log.Debug("Processor:cleanup()")
 
 	p.resetIPTables()
 
@@ -210,14 +230,14 @@ func (p *Processor) cleanup() (err error) {
 
 	for _, chain := range chains {
 		filters, _ := p.ipt.List(table, chain)
-		log.Debugf("%s %s %+v", table, chain, filters)
+		p.log.Debugf("%s %s %+v", table, chain, filters)
 	}
 	return
 }
 
 // TODO: stop chan struct{}
 func (p *Processor) Start() (err error) {
-	log.Infof("starting freki on %s", p.publicAddr)
+	p.log.Infof("starting freki on %s", p.publicAddr)
 
 	go func() {
 		ticker := time.NewTicker(time.Second * 5)
@@ -245,7 +265,7 @@ func (p *Processor) SetPortRules(portRules PortRules) {
 func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, ip *layers.IPv4, tcp *layers.TCP, body *gopacket.Payload) (err error) {
 	/*
 		if tcp.SrcPort != 22 && tcp.DstPort != 22 {
-			log.Debugf("packet %+v %+v", ip, tcp)
+			p.log.Debugf("packet %+v %+v", ip, tcp)
 		}
 	*/
 
@@ -265,7 +285,7 @@ func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, 
 			return
 		}
 
-		//log.Debugf("outboud %+v %+v", ip, tcp)
+		//p.log.Debugf("outboud %+v %+v", ip, tcp)
 
 		tcp.SrcPort = md.TargetPort
 	} else {
@@ -345,7 +365,7 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 	err := parser.DecodeLayers(packet.Data(), &foundLayerTypes)
 
 	if err != nil {
-		log.Error(err, foundLayerTypes)
+		p.log.Error(err, foundLayerTypes)
 		payload.SetVerdict(nfqueue.NF_ACCEPT)
 		return
 	}
@@ -353,7 +373,7 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 	for _, layer := range foundLayerTypes {
 		switch layer {
 		//case layers.LayerTypeDNS:
-		//	log.Infof("%+v", dns.Questions)
+		//	p.log.Infof("%+v", dns.Questions)
 		case layers.LayerTypeTCP:
 
 			// example drop
@@ -374,13 +394,13 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 			err = p.hijackTCP(payload, packet, &ip, &tcp, &body)
 
 			if err != nil {
-				log.Error(err)
+				p.log.Error(err)
 			}
 
 			return
 
 			//case layers.LayerTypeICMPv4:
-			//	log.Infof("%+v", icmp,)
+			//	p.log.Infof("%+v", icmp,)
 		}
 	}
 
@@ -405,4 +425,28 @@ func getLocalIP() net.IP {
 		}
 	}
 	return nil
+}
+
+func pcapBPFToXNetBPF(pcapbpf []pcap.BPFInstruction) *bpf.VM {
+	raw := make([]bpf.RawInstruction, len(pcapbpf))
+
+	for i, ins := range pcapbpf {
+		raw[i] = bpf.RawInstruction{
+			Op: ins.Code,
+			Jt: ins.Jt,
+			Jf: ins.Jf,
+			K:  ins.K,
+		}
+	}
+
+	filter, _ := bpf.Disassemble(raw)
+
+	vm, err := bpf.NewVM(filter)
+
+	if err != nil {
+		// TODO: return error
+		// p.log.Error(err)
+	}
+
+	return vm
 }
