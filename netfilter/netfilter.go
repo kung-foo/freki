@@ -36,7 +36,7 @@ import (
 	"unsafe"
 )
 
-type NFQueue struct {
+type Queue struct {
 	h       *C.struct_nfq_handle
 	qh      *C.struct_nfq_q_handle
 	fd      C.int
@@ -44,8 +44,8 @@ type NFQueue struct {
 }
 
 type RawPacket struct {
-	id   uint32
-	data []byte
+	ID   uint32
+	Data []byte
 }
 
 //Verdict for a packet
@@ -65,8 +65,8 @@ const (
 )
 
 //Create and bind to queue specified by queueId
-func NewNFQueue(queueID uint16, maxPacketsInQueue uint32, packetSize uint32) (*NFQueue, error) {
-	var nfq = NFQueue{
+func New(queueID uint16, maxPacketsInQueue uint32, packetSize uint32) (*Queue, error) {
+	var nfq = Queue{
 		// TODO: what should the chan size be?
 		packets: make(chan *RawPacket, 1024),
 	}
@@ -74,7 +74,7 @@ func NewNFQueue(queueID uint16, maxPacketsInQueue uint32, packetSize uint32) (*N
 	var ret C.int
 
 	if nfq.h, err = C.nfq_open(); err != nil {
-		return nil, fmt.Errorf("Error opening NFQueue handle: %v\n", err)
+		return nil, fmt.Errorf("Error opening Queue handle: %v\n", err)
 	}
 
 	if ret, err = C.nfq_unbind_pf(nfq.h, AF_INET); err != nil || ret < 0 {
@@ -110,26 +110,29 @@ func NewNFQueue(queueID uint16, maxPacketsInQueue uint32, packetSize uint32) (*N
 
 	register(queueID, nfq.packets)
 
-	go nfq.run()
+	// go nfq.run()
 
 	return &nfq, nil
 }
 
 //Unbind and close the queue
-func (nfq *NFQueue) Close() {
-	C.nfq_destroy_queue(nfq.qh)
+func (nfq *Queue) Close() {
+	//log.Print("nfq_destroy_queue")
+	//C.nfq_destroy_queue(nfq.qh)
+
 	C.nfq_close(nfq.h)
 }
 
-func (nfq *NFQueue) Packets() <-chan *RawPacket {
+func (nfq *Queue) Packets() <-chan *RawPacket {
 	return nfq.packets
 }
 
-func (nfq *NFQueue) SetVerdict(packet *RawPacket, verdict Verdict) (err error) {
+// TODO: make functions explicit. for example: SetVerdictAccept, SetVerdictDrop
+func (nfq *Queue) SetVerdict(packet *RawPacket, verdict Verdict) (err error) {
 	// TODO: get error
 	C.nfq_set_verdict(
 		nfq.qh,
-		C.u_int32_t(packet.id),
+		C.u_int32_t(packet.ID),
 		C.u_int32_t(verdict),
 		0,
 		nil,
@@ -137,25 +140,18 @@ func (nfq *NFQueue) SetVerdict(packet *RawPacket, verdict Verdict) (err error) {
 	return
 }
 
-func (nfq *NFQueue) SetVerdictModifed(packet *RawPacket, verdict Verdict) (err error) {
+func (nfq *Queue) SetVerdictModifed(packet *RawPacket, verdict Verdict) (err error) {
 	C.nfq_set_verdict(
 		nfq.qh,
-		C.u_int32_t(packet.id),
+		C.u_int32_t(packet.ID),
 		C.u_int32_t(verdict),
-		C.u_int32_t(len(packet.data)),
-		(*C.uchar)(unsafe.Pointer(&packet.data[0])),
+		C.u_int32_t(len(packet.Data)),
+		(*C.uchar)(unsafe.Pointer(&packet.Data[0])),
 	)
 	return
 }
 
-func (nfq *NFQueue) run() {
-	go func() {
-		for {
-			packet := <-nfq.packets
-			C.nfq_set_verdict(nfq.qh, C.u_int32_t(packet.id), C.u_int32_t(NF_ACCEPT), 0, nil)
-		}
-	}()
-
+func (nfq *Queue) Run() {
 	C.Run(nfq.h, nfq.fd)
 }
 
@@ -163,8 +159,8 @@ func (nfq *NFQueue) run() {
 func go_callback(id C.int, data *C.uchar, len C.int, queue_id C.int) {
 	// TODO: check cast of id
 	payload := &RawPacket{
-		id:   uint32(id),
-		data: C.GoBytes(unsafe.Pointer(data), len),
+		ID:   uint32(id),
+		Data: C.GoBytes(unsafe.Pointer(data), len),
 	}
 
 	dispatch(uint16(queue_id), payload)

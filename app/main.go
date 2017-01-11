@@ -40,11 +40,7 @@ func main() {
 	onErrorExit(err)
 
 	exit := func() {
-		err := processor.Stop()
-		if err != nil {
-			log.Error(err)
-		}
-		onErrorExit(processor.Cleanup())
+		onErrorExit(processor.Shutdown())
 		os.Exit(0)
 	}
 
@@ -56,7 +52,7 @@ func main() {
 		for range time.NewTicker(time.Second * 5).C {
 			t := processor.PacketsProcessed()
 			pps := (t - pp) / uint64(5)
-			log.Debugf("PPS: %d", pps)
+			logger.Debugf("PPS: %d", pps)
 			pp = t
 		}
 	}()
@@ -101,4 +97,6 @@ func main() {
 
 	// TODO: pass in stop channel
 	processor.Start()
+
+	// processor.Stop()
 }

@@ -1,14 +1,27 @@
-hash: 19055e070da58c24992e642456d44042e02684a6d0d78e6ad492dbbc9f7af6c7
-updated: 2017-01-02T19:59:22.101212918+01:00
+hash: a0cfa7f99747836be4729c36c2876c4109236a76341065a25a098628dc34014f
+updated: 2017-01-11T20:42:06.047805779+01:00
 imports:
 - name: github.com/coreos/go-iptables
   version: 5463fbac3bcc6b990663941c2e12660d19f6b36d
+  subpackages:
+  - iptables
+- name: github.com/davecgh/go-spew
+  version: 346938d642f2ec3594ed81d874461961cd0faa76
+  subpackages:
+  - spew
 - name: github.com/google/gopacket
   version: b83f94714c36e30ce851be1d5a0a5226f9f1bca4
   subpackages:
   - layers
-- name: github.com/kung-foo/nfqueue-go
-  version: 447429c2168095c751b919527ef1d95a19a269cd
+  - pcap
 - name: github.com/sirupsen/logrus
   version: d26492970760ca5d33129d2d799e34be5c4782eb
+- name: golang.org/x/net
+  version: 60c41d1de8da134c05b7b40154a9a82bf5b7edb9
+  subpackages:
+  - bpf
+- name: golang.org/x/sys
+  version: d4feaf1a7e61e1d9e79e6c4e76c6349e9cab0a03
+  subpackages:
+  - unix
 testImports: []

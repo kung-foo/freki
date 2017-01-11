@@ -3,9 +3,6 @@ license: MIT
 owners:
 - name: Jonathan Camp
   email: me@jonathan.camp
-ignore:
-- github.com/kung-foo/nfqueue-go/test_nfqueue
-- github.com/kung-foo/nfqueue-go/test_nfqueue_gopacket
 import:
 - package: github.com/google/gopacket
   version: ^1.1.12
@@ -13,5 +10,8 @@ import:
   - layers
 - package: github.com/sirupsen/logrus
   version: ^0.11.0
-- package: github.com/kung-foo/nfqueue-go
 - package: github.com/coreos/go-iptables
+- package: github.com/davecgh/go-spew
+  version: ^1.1.0
+  subpackages:
+  - spew
