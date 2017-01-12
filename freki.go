@@ -6,17 +6,16 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"golang.org/x/net/bpf"
 
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"github.com/kung-foo/freki/netfilter"
-	"github.com/kung-foo/nfqueue-go/nfqueue"
 )
 
 const table = "raw"
@@ -48,12 +47,14 @@ type Processor struct {
 	ipt              *iptables.IPTables
 	rules            [][]string
 	portRules        PortRules
-	nfq              *nfqueue.Queue
+	nfq              *netfilter.Queue
 	cleanupOnce      sync.Once
 	Connections      *connTable
 	packetsProcessed uint64
-	stop             chan struct{}
+	shutdown         chan struct{}
 	publicAddr       net.IP
+
+	vm *bpf.VM
 }
 
 func New(logger Logger) *Processor {
@@ -65,7 +66,7 @@ func New(logger Logger) *Processor {
 			HijackTCPServerPort: 6000,
 		},
 		Connections: newConnTable(),
-		stop:        make(chan struct{}),
+		shutdown:    make(chan struct{}),
 		publicAddr:  getLocalIP(),
 	}
 
@@ -126,68 +127,30 @@ func (p *Processor) Init() (err error) {
 		p.log.Debugf("%s %s %+v", table, chain, filters)
 	}
 
-	// DEMO!!!
-	if true {
-		nfq2, err := netfilter.NewNFQueue(0, 100, netfilter.NF_DEFAULT_PACKET_SIZE)
-		if err != nil {
-			p.log.Error(err)
-		}
+	// TODO: set sane defaults
+	p.nfq, err = netfilter.New(0, 100, netfilter.NF_DEFAULT_PACKET_SIZE)
 
-		go func() {
-			for p := range nfq2.Packets() {
-				nfq2.SetVerdict(p, netfilter.NF_ACCEPT)
-			}
-		}()
-
-		time.Sleep(time.Second * 10)
-
-		nfq2.Close()
-	}
-
-	p.nfq = new(nfqueue.Queue)
-
-	// TODO: this assumes a global Processor singleton...
-	// there are some cgo issues here... and dragons...
-	p.nfq.SetCallback(routeOnPacket)
-
-	err = p.nfq.Init()
 	if err != nil {
 		return
 	}
 
-	err = p.nfq.Unbind(syscall.AF_INET)
+	h, err := pcap.OpenLive("wlan0", 1, false, time.Second)
 	if err != nil {
-		return
+		p.log.Error(err)
 	}
 
-	err = p.nfq.Bind(syscall.AF_INET)
+	instuctions, err := h.CompileBPFFilter("tcp portrange 9000-9200")
 	if err != nil {
-		return
+		p.log.Error(err)
 	}
 
-	// TODO: multiple queues. easy.
-	err = p.nfq.CreateQueue(0)
-	if err != nil {
-		return
+	if h != nil {
+		h.Close()
 	}
+
+	p.vm = pcapBPFToXNetBPF(instuctions)
 
 	/*
-		h, err := pcap.OpenLive("wlan0", 1, false, time.Second)
-		if err != nil {
-			p.log.Error(err)
-		}
-
-		instuctions, err := h.CompileBPFFilter("tcp portrange 9000-9200")
-		if err != nil {
-			p.log.Error(err)
-		}
-
-		if h != nil {
-			h.Close()
-		}
-
-		vm := pcapBPFToXNetBPF(instuctions)
-
 		out, err := vm.Run([]byte{
 			0xcc, 0x5d, 0x4e, 0x06, 0x51, 0x9b, 0x88, 0x53, 0x2e, 0x69, 0x37, 0x64, 0x08, 0x00, 0x45, 0x00,
 			0x00, 0x3c, 0x6d, 0xc8, 0x40, 0x00, 0x40, 0x06, 0x98, 0xea, 0xc0, 0xa8, 0x00, 0x50, 0x34, 0xd6,
@@ -206,14 +169,10 @@ func (p *Processor) PacketsProcessed() uint64 {
 	return atomic.LoadUint64(&p.packetsProcessed)
 }
 
-func (p *Processor) Stop() (err error) {
-	close(p.stop)
-	return
-}
-
-func (p *Processor) Cleanup() (err error) {
-	// debug.PrintStack()
+func (p *Processor) Shutdown() (err error) {
 	p.cleanupOnce.Do(func() {
+		close(p.shutdown)
+		// TODO: how to drain?
 		err = p.cleanup()
 	})
 	return
@@ -235,7 +194,6 @@ func (p *Processor) cleanup() (err error) {
 	return
 }
 
-// TODO: stop chan struct{}
 func (p *Processor) Start() (err error) {
 	p.log.Infof("starting freki on %s", p.publicAddr)
 
@@ -245,15 +203,17 @@ func (p *Processor) Start() (err error) {
 			select {
 			case <-ticker.C:
 				p.Connections.FlushOlderThan(time.Second * 60)
-			case <-p.stop:
+			case <-p.shutdown:
 				ticker.Stop()
 				return
 			}
 		}
 	}()
 
-	p.nfq.TryRun()
-	return
+	// TODO: discover how "Run" returns
+	go p.nfq.Run()
+
+	return p.loop()
 }
 
 var localhost = net.ParseIP("127.0.0.1")
@@ -262,13 +222,22 @@ func (p *Processor) SetPortRules(portRules PortRules) {
 	p.portRules = portRules
 }
 
-func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, ip *layers.IPv4, tcp *layers.TCP, body *gopacket.Payload) (err error) {
-	/*
-		if tcp.SrcPort != 22 && tcp.DstPort != 22 {
-			p.log.Debugf("packet %+v %+v", ip, tcp)
+func (p *Processor) loop() (err error) {
+	for {
+		select {
+		case raw := <-p.nfq.Packets():
+			err = p.onPacket(raw)
+			if err != nil {
+				return
+			}
+		case <-p.shutdown:
+			return
 		}
-	*/
+	}
+}
 
+/*
+func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, ip *layers.IPv4, tcp *layers.TCP, body *gopacket.Payload) (err error) {
 	if ip.SrcIP.Equal(p.publicAddr) {
 		// packets back to client
 		if tcp.SrcPort != layers.TCPPort(p.portRules.HijackTCPServerPort) {
@@ -284,9 +253,6 @@ func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, 
 			payload.SetVerdict(nfqueue.NF_ACCEPT)
 			return
 		}
-
-		//p.log.Debugf("outboud %+v %+v", ip, tcp)
-
 		tcp.SrcPort = md.TargetPort
 	} else {
 		// handling packets
@@ -334,18 +300,35 @@ func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, 
 
 	return
 }
+*/
+var ethHdr = []byte{
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x08, 0x00,
+}
 
-func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
-	retVal = 0 // see: https://www.netfilter.org/projects/libnetfilter_queue/doxygen/group__Queue.html
+func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 	// TODO: remove defer
 	defer func() {
 		atomic.AddUint64(&p.packetsProcessed, 1)
 	}()
 
+	buffer := append(ethHdr, rawPacket.Data...)
+
 	// TODO: set DecodeOptions
-	packet := gopacket.NewPacket(payload.Data, layers.LayerTypeIPv4, gopacket.Default)
+	packet := gopacket.NewPacket(
+		buffer,
+		layers.LayerTypeEthernet,
+		gopacket.DecodeOptions{Lazy: false, NoCopy: true},
+	)
+
+	spew.Dump(packet)
+
+	//p.log.Info(p.vm.Run(buffer))
+	// p.vm.Run(buffer)
 
 	var (
+		eth  layers.Ethernet
 		ip   layers.IPv4
 		tcp  layers.TCP
 		udp  layers.UDP
@@ -354,7 +337,8 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 	)
 
 	parser := gopacket.NewDecodingLayerParser(
-		layers.LayerTypeIPv4,
+		layers.LayerTypeEthernet,
+		&eth,
 		&ip,
 		&tcp,
 		&udp,
@@ -362,27 +346,17 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 		&body)
 
 	var foundLayerTypes []gopacket.LayerType
-	err := parser.DecodeLayers(packet.Data(), &foundLayerTypes)
+	err = parser.DecodeLayers(packet.Data(), &foundLayerTypes)
 
 	if err != nil {
 		p.log.Error(err, foundLayerTypes)
-		payload.SetVerdict(nfqueue.NF_ACCEPT)
+		p.nfq.SetVerdict(rawPacket, netfilter.NF_ACCEPT)
 		return
 	}
 
 	for _, layer := range foundLayerTypes {
 		switch layer {
-		//case layers.LayerTypeDNS:
-		//	p.log.Infof("%+v", dns.Questions)
 		case layers.LayerTypeTCP:
-
-			// example drop
-			/*
-				if tcp.DstPort == 4000 {
-					payload.SetVerdict(nfqueue.NF_DROP)
-					return
-				}
-			*/
 
 			// TODO: validate
 			if tcp.SYN && !tcp.ACK {
@@ -391,25 +365,17 @@ func (p *Processor) onPacket(payload *nfqueue.Payload) (retVal int) {
 				p.Connections.Register(ck, tcp.DstPort, ip.DstIP.To4())
 			}
 
-			err = p.hijackTCP(payload, packet, &ip, &tcp, &body)
+			//err = p.hijackTCP(payload, packet, &ip, &tcp, &body)
 
 			if err != nil {
 				p.log.Error(err)
 			}
 
-			return
-
-			//case layers.LayerTypeICMPv4:
-			//	p.log.Infof("%+v", icmp,)
+			//return
 		}
 	}
 
-	payload.SetVerdict(nfqueue.NF_ACCEPT)
-	return
-}
-
-func routeOnPacket(payload *nfqueue.Payload) int {
-	return processor.onPacket(payload)
+	return p.nfq.SetVerdict(rawPacket, netfilter.NF_ACCEPT)
 }
 
 func getLocalIP() net.IP {
