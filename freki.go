@@ -32,15 +32,15 @@ var processor *Processor
 // PortRule represents the handling rule associated with a port
 type PortRule struct {
 	// tcp_proxy, hijack, passthrough
-	Type string `json:"type"`
+	Type string `yaml:"type"`
 	// for tcp_proxy type
-	Target string `json:"target"`
+	Target string `yaml:"target"`
 }
 
 // PortRules contains a port -> Rule mapping
 type PortRules struct {
-	HijackTCPServerPort int              `json:"hijackTCPServerPort"`
-	Ports               map[int]PortRule `json:"ports"`
+	HijackTCPServerPort int              `yaml:"hijackTCPServerPort"`
+	Ports               map[int]PortRule `yaml:"ports"`
 }
 
 type Processor struct {
@@ -293,7 +293,7 @@ func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, 
 		if rule, ok := p.portRules.Ports[int(tcp.DstPort)]; ok {
 
 			switch rule.Type {
-			case "passthrough":
+			case "ignore":
 				payload.SetVerdict(nfqueue.NF_ACCEPT)
 				return
 			case "hijack":
