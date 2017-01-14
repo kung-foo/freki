@@ -27,6 +27,8 @@
 #include <linux/netfilter.h>
 #include <libnetfilter_queue/libnetfilter_queue.h>
 
+#define PASSTHROUGH 0
+
 extern void go_callback(int id, unsigned char* data, int len, int queue_id);
 
 static int nf_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *cb_data){
@@ -34,17 +36,21 @@ static int nf_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct n
     struct nfqnl_msg_packet_hdr *ph = NULL;
     unsigned char *buffer = NULL;
     int ret = 0;
-    // int verdict = 0;
 
     // nfq_get_packet_hw
     ph = nfq_get_msg_packet_hdr(nfa);
     id = ntohl(ph->packet_id);
 
-    ret = nfq_get_payload(nfa, &buffer);
-    go_callback(id, buffer, ret, (intptr_t)cb_data);
+    if (PASSTHROUGH) {
+        if (nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL) == -1) {
+            perror("nfq_set_verdict");
+        }
+    } else {
+        ret = nfq_get_payload(nfa, &buffer);
+        go_callback(id, buffer, ret, (intptr_t)cb_data);
+    }
 
-    //return nfq_set_verdict(qh, id, verdict, 0, NULL);
-    return 0;
+    return ret;
 }
 
 static inline struct nfq_q_handle* CreateQueue(struct nfq_handle *h, u_int16_t queue)
@@ -54,11 +60,22 @@ static inline struct nfq_q_handle* CreateQueue(struct nfq_handle *h, u_int16_t q
 
 static inline void Run(struct nfq_handle *h, int fd)
 {
-    char buf[4096] __attribute__ ((aligned));
-    int rv;
+    char buf[70000] __attribute__ ((aligned));
+    int sz;
 
-    while ((rv = recv(fd, buf, sizeof(buf), 0)) && rv >= 0) {
-        nfq_handle_packet(h, buf, rv);
+    //int opt = 1;
+    //setsockopt(fd, SOL_NETLINK, NETLINK_BROADCAST_SEND_ERROR, &opt, sizeof(int));
+    //setsockopt(fd, SOL_NETLINK, NETLINK_NO_ENOBUFS, &opt, sizeof(int));
+
+    // MSG_DONTWAIT?
+
+    while ((sz = recv(fd, buf, sizeof(buf), 0)) && sz >= 0) {
+        if (sz == sizeof(buf)) {
+            // TODO: something
+        }
+        if (nfq_handle_packet(h, buf, sz) != 0) {
+            perror("nfq_handle_packet");
+        }
     }
 }
 

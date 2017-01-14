@@ -37,6 +37,7 @@ import (
 )
 
 type Queue struct {
+	ID      uint16
 	h       *C.struct_nfq_handle
 	qh      *C.struct_nfq_q_handle
 	fd      C.int
@@ -67,6 +68,7 @@ const (
 //Create and bind to queue specified by queueId
 func New(queueID uint16, maxPacketsInQueue uint32, packetSize uint32) (*Queue, error) {
 	var nfq = Queue{
+		ID: queueID,
 		// TODO: what should the chan size be?
 		packets: make(chan *RawPacket, 1024),
 	}
@@ -108,17 +110,21 @@ func New(queueID uint16, maxPacketsInQueue uint32, packetSize uint32) (*Queue, e
 		return nil, fmt.Errorf("Unable to get queue file-descriptor. %v", err)
 	}
 
-	register(queueID, nfq.packets)
+	// TODO: error handling
+	// me: https://i.imgur.com/Lmy5P.gif
+	C.nfnl_rcvbufsiz(C.nfq_nfnlh(nfq.h), 1024*16384)
 
-	// go nfq.run()
+	// register this queue object with the global dispatcher
+	register(queueID, nfq.packets)
 
 	return &nfq, nil
 }
 
 //Unbind and close the queue
 func (nfq *Queue) Close() {
-	//log.Print("nfq_destroy_queue")
-	//C.nfq_destroy_queue(nfq.qh)
+	// TODO: why does this hang sometimes?
+	// log.Print("nfq_destroy_queue")
+	// C.nfq_destroy_queue(nfq.qh)
 
 	C.nfq_close(nfq.h)
 }
