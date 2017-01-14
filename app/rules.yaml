@@ -1,0 +1,18 @@
+# drop -- drops everything
+# logging_tcp -- establishes a connection (3 way handshake), attempts to read X bytes, then closes the connnection. log everything
+# ignore -- simply mark the packets as accepted
+# spoof-- pretend to be something else. could come in multiple flavors like http or telnet
+# rewrite -- rewrite the destination port to target a 3rd party honeypot. we would need to expose the original source port via an api such that the external process could log it.
+# proxy -- this is slightly different from rewrite in that we could proxy the connection to an off-box addr (i.e. google.com)
+
+hijackTCPServerPort: 5000
+
+ports:
+    22:
+      type: proxy
+      target: localhost:22
+    80:
+      type: rewrite
+      target: http
+    5001:
+      type: ignore
