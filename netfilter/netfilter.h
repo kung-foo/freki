@@ -61,7 +61,7 @@ static inline struct nfq_q_handle* CreateQueue(struct nfq_handle *h, u_int16_t q
 static inline void Run(struct nfq_handle *h, int fd)
 {
     char buf[70000] __attribute__ ((aligned));
-    int sz;
+    int sz, rv;
 
     //int opt = 1;
     //setsockopt(fd, SOL_NETLINK, NETLINK_BROADCAST_SEND_ERROR, &opt, sizeof(int));
@@ -73,8 +73,8 @@ static inline void Run(struct nfq_handle *h, int fd)
         if (sz == sizeof(buf)) {
             // TODO: something
         }
-        if (nfq_handle_packet(h, buf, sz) != 0) {
-            perror("nfq_handle_packet");
+        if ((rv = nfq_handle_packet(h, buf, sz)) && rv != 0) {
+            // perror("nfq_handle_packet");
         }
     }
 }

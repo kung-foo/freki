@@ -146,13 +146,13 @@ func (nfq *Queue) SetVerdict(packet *RawPacket, verdict Verdict) (err error) {
 	return
 }
 
-func (nfq *Queue) SetVerdictModifed(packet *RawPacket, verdict Verdict) (err error) {
+func (nfq *Queue) SetVerdictModifed(packet *RawPacket, buffer []byte, verdict Verdict) (err error) {
 	C.nfq_set_verdict(
 		nfq.qh,
 		C.u_int32_t(packet.ID),
 		C.u_int32_t(verdict),
-		C.u_int32_t(len(packet.Data)),
-		(*C.uchar)(unsafe.Pointer(&packet.Data[0])),
+		C.u_int32_t(len(buffer)),
+		(*C.uchar)(unsafe.Pointer(&buffer[0])),
 	)
 	return
 }
