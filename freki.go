@@ -11,7 +11,6 @@ import (
 	"golang.org/x/net/bpf"
 
 	"github.com/coreos/go-iptables/iptables"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
@@ -28,50 +27,31 @@ func genRule(protocol, queuespec string) []string {
 
 var processor *Processor
 
-// PortRule represents the handling rule associated with a port
-type PortRule struct {
-	// tcp_proxy, hijack, passthrough
-	Type string `yaml:"type"`
-	// for tcp_proxy type
-	Target string `yaml:"target"`
-}
-
-// PortRules contains a port -> Rule mapping
-type PortRules struct {
-	HijackTCPServerPort int              `yaml:"hijackTCPServerPort"`
-	Ports               map[int]PortRule `yaml:"ports"`
-}
-
 type Processor struct {
 	log              Logger
+	rules            []*Rule
 	ipt              *iptables.IPTables
-	rules            [][]string
-	portRules        PortRules
+	iptRules         [][]string
 	nfq              *netfilter.Queue
 	cleanupOnce      sync.Once
 	Connections      *connTable
 	packetsProcessed uint64
 	shutdown         chan struct{}
 	publicAddr       net.IP
-
-	vm *bpf.VM
 }
 
-func New(logger Logger) *Processor {
+func New(rules []*Rule, logger Logger) *Processor {
 	processor = &Processor{
-		log:   logger,
-		rules: make([][]string, 0),
-		portRules: PortRules{
-			// Set a default port for the TCP hijack server
-			HijackTCPServerPort: 6000,
-		},
+		rules:       rules,
+		log:         logger,
+		iptRules:    make([][]string, 0),
 		Connections: newConnTable(),
 		shutdown:    make(chan struct{}),
-		publicAddr:  getLocalIP(),
+		publicAddr:  net.ParseIP("192.168.200.1"), //getLocalIP(),
 	}
 
 	// TODO: customize protocols
-	processor.rules = append(processor.rules,
+	processor.iptRules = append(processor.iptRules,
 		genRule("tcp", "0"),
 		// genRule("udp", "0"),
 		// genRule("icmp", "0"),
@@ -81,7 +61,7 @@ func New(logger Logger) *Processor {
 }
 
 func (p *Processor) initIPTables() (err error) {
-	for _, rule := range p.rules {
+	for _, rule := range p.iptRules {
 		for _, chain := range chains {
 			err = p.ipt.AppendUnique(table, chain, rule...)
 			if err != nil {
@@ -93,7 +73,7 @@ func (p *Processor) initIPTables() (err error) {
 }
 
 func (p *Processor) resetIPTables() (err error) {
-	for _, rule := range p.rules {
+	for _, rule := range p.iptRules {
 		for _, chain := range chains {
 			err = p.ipt.Delete(table, chain, rule...)
 			if err != nil {
@@ -133,34 +113,6 @@ func (p *Processor) Init() (err error) {
 	if err != nil {
 		return
 	}
-
-	h, err := pcap.OpenLive("wlan0", 1, false, time.Second)
-	if err != nil {
-		p.log.Error(err)
-	}
-
-	instuctions, err := h.CompileBPFFilter("tcp portrange 9000-9200")
-	if err != nil {
-		p.log.Error(err)
-	}
-
-	if h != nil {
-		h.Close()
-	}
-
-	p.vm = pcapBPFToXNetBPF(instuctions)
-
-	/*
-		out, err := vm.Run([]byte{
-			0xcc, 0x5d, 0x4e, 0x06, 0x51, 0x9b, 0x88, 0x53, 0x2e, 0x69, 0x37, 0x64, 0x08, 0x00, 0x45, 0x00,
-			0x00, 0x3c, 0x6d, 0xc8, 0x40, 0x00, 0x40, 0x06, 0x98, 0xea, 0xc0, 0xa8, 0x00, 0x50, 0x34, 0xd6,
-			0x3e, 0x3b, 0x80, 0xc0, 0x23, 0xf0, 0xb4, 0xd9, 0x20, 0x79, 0x00, 0x00, 0x00, 0x00, 0xa0, 0x02,
-			0x72, 0x10, 0xd9, 0xb9, 0x00, 0x00, 0x02, 0x04, 0x05, 0xb4, 0x04, 0x02, 0x08, 0x0a, 0x00, 0x78,
-			0x4d, 0xb1, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x03, 0x07,
-		})
-
-		p.log.Infof("%v %v", out, err)
-	*/
 
 	return
 }
@@ -218,10 +170,6 @@ func (p *Processor) Start() (err error) {
 
 var localhost = net.ParseIP("127.0.0.1")
 
-func (p *Processor) SetPortRules(portRules PortRules) {
-	p.portRules = portRules
-}
-
 func (p *Processor) loop() (err error) {
 	for {
 		select {
@@ -234,6 +182,82 @@ func (p *Processor) loop() (err error) {
 			return
 		}
 	}
+}
+
+func (p *Processor) mangle(
+	rawPacket *netfilter.RawPacket,
+	packet gopacket.Packet,
+	ip *layers.IPv4,
+	tcp *layers.TCP,
+	body *gopacket.Payload) error {
+
+	var err error
+	var buffer gopacket.SerializeBuffer
+
+	if ip.SrcIP.Equal(p.publicAddr) {
+		// packets back to client
+		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Dst(), tcp.TransportFlow().Dst())
+		md := p.Connections.GetByFlow(ck)
+		if md == nil {
+			// not tracking
+			goto accept
+		}
+
+		switch md.Rule.ruleType {
+		case Rewrite:
+			tcp.SrcPort = layers.TCPPort(md.TargetPort)
+			goto modified
+		case Drop:
+			goto drop
+		case PassThrough:
+			goto accept
+		default:
+			p.log.Errorf("rule not implmented: %+v", md.Rule)
+		}
+	} else {
+		// packets to honeypots
+		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
+		md := p.Connections.GetByFlow(ck)
+		if md == nil {
+			// not tracking
+			goto accept
+		}
+
+		switch md.Rule.ruleType {
+		case Rewrite:
+			tcp.DstPort = layers.TCPPort(md.Rule.port)
+			goto modified
+		case Drop:
+			goto drop
+		case PassThrough:
+			goto accept
+		default:
+			p.log.Errorf("rule not implmented: %+v", md.Rule)
+		}
+	}
+
+	// default
+	goto accept
+
+modified:
+	tcp.SetNetworkLayerForChecksum(ip)
+	buffer = gopacket.NewSerializeBuffer()
+
+	err = gopacket.SerializeLayers(
+		buffer,
+		gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
+		ip, tcp, body,
+	)
+	if err != nil {
+		// TODO: should return a verdict?
+		return err
+	}
+
+	return p.nfq.SetVerdictModifed(rawPacket, buffer.Bytes(), netfilter.NF_ACCEPT)
+accept:
+	return p.nfq.SetVerdict(rawPacket, netfilter.NF_ACCEPT)
+drop:
+	return p.nfq.SetVerdict(rawPacket, netfilter.NF_DROP)
 }
 
 /*
@@ -313,6 +337,10 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 		atomic.AddUint64(&p.packetsProcessed, 1)
 	}()
 
+	// OK, so this mess is because I want to use libpcap's BPF compiler which
+	// emits instructions that expect an etherneet header. But, NFQUEUE only
+	// emits IP and down. So I need to append a fake ethernet header. Ideally
+	// I would have a BPF progam that could operate on the IP packet itself.
 	buffer := append(ethHdr, rawPacket.Data...)
 
 	// TODO: set DecodeOptions
@@ -322,10 +350,7 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 		gopacket.DecodeOptions{Lazy: false, NoCopy: true},
 	)
 
-	spew.Dump(packet)
-
-	//p.log.Info(p.vm.Run(buffer))
-	// p.vm.Run(buffer)
+	// spew.Dump(packet)
 
 	var (
 		eth  layers.Ethernet
@@ -350,32 +375,66 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 
 	if err != nil {
 		p.log.Error(err, foundLayerTypes)
-		p.nfq.SetVerdict(rawPacket, netfilter.NF_ACCEPT)
-		return
+		goto accept
 	}
 
 	for _, layer := range foundLayerTypes {
 		switch layer {
 		case layers.LayerTypeTCP:
-
-			// TODO: validate
+			// TODO: validate logic
 			if tcp.SYN && !tcp.ACK {
-				// when i don't respond to a SYN, then a duplicate SYN is sent
+				var rule *Rule
+				rule, err = p.applyRules(packet)
+
+				if err != nil {
+					p.log.Error(err)
+					goto accept
+				}
+
+				if rule == nil {
+					// TODO: is this the correct default?
+					goto accept
+				}
+
+				// FYI: when i don't respond to a SYN, then a duplicate SYN is sent
 				ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
-				p.Connections.Register(ck, tcp.DstPort, ip.DstIP.To4())
+				p.Connections.Register(ck, rule, tcp.DstPort)
 			}
 
-			//err = p.hijackTCP(payload, packet, &ip, &tcp, &body)
+			err = p.mangle(rawPacket, packet, &ip, &tcp, &body)
 
 			if err != nil {
 				p.log.Error(err)
 			}
 
-			//return
+			return
 		}
 	}
 
+accept:
 	return p.nfq.SetVerdict(rawPacket, netfilter.NF_ACCEPT)
+}
+
+func (p *Processor) applyRules(packet gopacket.Packet) (*Rule, error) {
+	/*
+		if len(p.rules) == 0 {
+			return nil, fmt.Errorf("no rules found")
+		}
+	*/
+
+	for _, rule := range p.rules {
+		if rule.matcher != nil {
+			v, err := rule.matcher.Run(packet.Data())
+			if err != nil {
+				return nil, err
+			}
+			if v == 1 {
+				return rule, nil
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 func getLocalIP() net.IP {
@@ -411,6 +470,7 @@ func pcapBPFToXNetBPF(pcapbpf []pcap.BPFInstruction) *bpf.VM {
 
 	if err != nil {
 		// TODO: return error
+		println(err)
 		// p.log.Error(err)
 	}
 

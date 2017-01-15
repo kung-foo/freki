@@ -30,13 +30,20 @@ func onInterruptSignal(fn func()) {
 }
 
 func main() {
+	var err error
 	// log.SetLevel(log.DebugLevel)
 	logger := log.New()
 	logger.Level = log.DebugLevel
 
-	processor := freki.New(logger)
+	rulesFile, err := os.Open("app/rules.yaml")
+	onErrorExit(err)
 
-	err := processor.Init()
+	rules, err := freki.ReadRulesFromFile(rulesFile)
+	onErrorExit(err)
+
+	processor := freki.New(rules, logger)
+
+	err = processor.Init()
 	onErrorExit(err)
 
 	exit := func() {

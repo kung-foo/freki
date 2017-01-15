@@ -31,35 +31,37 @@ func NewConnKeyByString(host, port string) ckey {
 	return NewConnKeyByEndpoints(clientAddr, clientPort)
 }
 
-type metadata struct {
-	added      time.Time
+type Metadata struct {
+	Added      time.Time
+	Rule       *Rule
 	TargetPort layers.TCPPort
-	TargetIP   net.IP
+	//TargetIP   net.IP
 }
 
 type connTable struct {
-	table map[ckey]*metadata
+	table map[ckey]*Metadata
 	mtx   sync.RWMutex
 }
 
 func newConnTable() *connTable {
 	ct := &connTable{
-		table: make(map[ckey]*metadata, 1024),
+		table: make(map[ckey]*Metadata, 1024),
 	}
 	return ct
 }
 
-func (t *connTable) Register(ck ckey, targetPort layers.TCPPort, targetIP net.IP) {
+func (t *connTable) Register(ck ckey, matchedRule *Rule, targetPort layers.TCPPort) {
 	t.mtx.Lock()
 	defer t.mtx.Unlock()
 
 	if _, ok := t.table[ck]; ok {
 		// TODO: wut?
 	} else {
-		t.table[ck] = &metadata{
-			added:      time.Now(),
+		t.table[ck] = &Metadata{
+			Added:      time.Now(),
+			Rule:       matchedRule,
 			TargetPort: targetPort,
-			TargetIP:   targetIP,
+			//TargetIP:   targetIP,
 		}
 	}
 }
@@ -71,13 +73,15 @@ func (t *connTable) FlushOlderThan(s time.Duration) {
 	threshold := time.Now().Add(-1 * s)
 
 	for ck, md := range t.table {
-		if md.added.Before(threshold) {
+		if md.Added.Before(threshold) {
 			delete(t.table, ck)
 		}
 	}
 }
 
-func (t *connTable) GetByFlow(ck ckey) *metadata {
+// TODO: what happens when I return a *Metadata and then FlushOlderThan()
+// deletes it?
+func (t *connTable) GetByFlow(ck ckey) *Metadata {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
 	return t.table[ck]
