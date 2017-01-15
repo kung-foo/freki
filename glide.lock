@@ -1,8 +1,10 @@
-hash: bea4352b6a8b16314e34cc45369247ab51276e83cd2da9d11bc53b9b7e3fa2dc
-updated: 2017-01-14T14:22:54.995446689+01:00
+hash: c85fb6f3e6ccdf83d33304144157fe7a8cf6c8c07882e360e3105ceada9dd0ca
+updated: 2017-01-14T15:19:15.540074127+01:00
 imports:
 - name: github.com/coreos/go-iptables
   version: 5463fbac3bcc6b990663941c2e12660d19f6b36d
+  subpackages:
+  - iptables
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76
   subpackages:
@@ -11,6 +13,9 @@ imports:
   version: b83f94714c36e30ce851be1d5a0a5226f9f1bca4
   subpackages:
   - layers
+  - pcap
+- name: github.com/pkg/errors
+  version: 645ef00459ed84a119197bfb8d8205042c6df63d
 - name: github.com/sirupsen/logrus
   version: d26492970760ca5d33129d2d799e34be5c4782eb
 - name: gopkg.in/yaml.v2
