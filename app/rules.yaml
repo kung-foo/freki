@@ -7,7 +7,7 @@
 rules:
     - match: tcp dst port 10022
       type: rewrite
-      target: tcp://localhost:22
+      target: 22
     - match: tcp dst port 9200
       type: proxy
       target: docker://elasticsearch:9200
@@ -17,6 +17,8 @@ rules:
     - match: tcp port 80 or tcp port 8080
       type: log_http
     - match: tcp portrange 5000-5010
+      type: drop
+    - match: tcp port 8888
       type: drop
     - match: tcp
       type: log_tcp
