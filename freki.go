@@ -15,17 +15,17 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"github.com/kung-foo/freki/netfilter"
+	"github.com/pkg/errors"
 )
 
 const table = "raw"
 
 var chains = []string{"PREROUTING", "OUTPUT"}
 
+// TODO: add "-i iface" to PREROUTING
 func genRule(protocol, queuespec string) []string {
 	return strings.Split(fmt.Sprintf("-p,%s,-j,NFQUEUE,--queue-num,%s", protocol, queuespec), ",")
 }
-
-var processor *Processor
 
 type Processor struct {
 	log              Logger
@@ -37,17 +37,39 @@ type Processor struct {
 	Connections      *connTable
 	packetsProcessed uint64
 	shutdown         chan struct{}
-	publicAddr       net.IP
+	publicAddrs      []net.IP
+	iface            *pcap.Handle
+	servers          map[string]Server
 }
 
-func New(rules []*Rule, logger Logger) *Processor {
-	processor = &Processor{
+func New(ifaceName string, rules []*Rule, logger Logger) (*Processor, error) {
+	iface, err := pcap.OpenLive(ifaceName, 1, false, time.Second)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for idx, rule := range rules {
+		err = initRule(idx, rule, iface)
+		if err != nil {
+			return nil, errors.Wrap(err, rule.String())
+		}
+	}
+
+	nonLoopbackAddrs, err := getNonLoopbackIPs(ifaceName, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	processor := &Processor{
 		rules:       rules,
 		log:         logger,
 		iptRules:    make([][]string, 0),
-		Connections: newConnTable(),
+		Connections: newConnTable(logger),
 		shutdown:    make(chan struct{}),
-		publicAddr:  net.ParseIP("192.168.200.1"), //getLocalIP(),
+		publicAddrs: nonLoopbackAddrs,
+		iface:       iface,
+		servers:     make(map[string]Server, 0),
 	}
 
 	// TODO: customize protocols
@@ -57,7 +79,11 @@ func New(rules []*Rule, logger Logger) *Processor {
 		// genRule("icmp", "0"),
 	)
 
-	return processor
+	return processor, nil
+}
+
+func (p *Processor) AddServer(s Server) {
+	p.servers[s.Type()] = s
 }
 
 func (p *Processor) initIPTables() (err error) {
@@ -114,6 +140,16 @@ func (p *Processor) Init() (err error) {
 		return
 	}
 
+	for _, server := range p.servers {
+		go func(s Server) {
+			p.log.Infof("starting %s on %d", s.Type(), s.Port())
+			err := s.Start(p)
+			if err != nil {
+				p.log.Error(err)
+			}
+		}(server)
+	}
+
 	return
 }
 
@@ -143,11 +179,15 @@ func (p *Processor) cleanup() (err error) {
 		filters, _ := p.ipt.List(table, chain)
 		p.log.Debugf("%s %s %+v", table, chain, filters)
 	}
+
+	if p.iface != nil {
+		p.iface.Close()
+	}
 	return
 }
 
 func (p *Processor) Start() (err error) {
-	p.log.Infof("starting freki on %s", p.publicAddr)
+	p.log.Infof("starting freki on %v", p.publicAddrs)
 
 	go func() {
 		ticker := time.NewTicker(time.Second * 5)
@@ -168,8 +208,6 @@ func (p *Processor) Start() (err error) {
 	return p.loop()
 }
 
-var localhost = net.ParseIP("127.0.0.1")
-
 func (p *Processor) loop() (err error) {
 	for {
 		select {
@@ -184,6 +222,15 @@ func (p *Processor) loop() (err error) {
 	}
 }
 
+func (p *Processor) isIPNonLoopback(ip *net.IP) bool {
+	for _, addr := range p.publicAddrs {
+		if ip.Equal(addr) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Processor) mangle(
 	rawPacket *netfilter.RawPacket,
 	packet gopacket.Packet,
@@ -194,7 +241,7 @@ func (p *Processor) mangle(
 	var err error
 	var buffer gopacket.SerializeBuffer
 
-	if ip.SrcIP.Equal(p.publicAddr) {
+	if p.isIPNonLoopback(&ip.SrcIP) {
 		// packets back to client
 		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Dst(), tcp.TransportFlow().Dst())
 		md := p.Connections.GetByFlow(ck)
@@ -204,7 +251,7 @@ func (p *Processor) mangle(
 		}
 
 		switch md.Rule.ruleType {
-		case Rewrite:
+		case Rewrite, LogTCP:
 			tcp.SrcPort = layers.TCPPort(md.TargetPort)
 			goto modified
 		case Drop:
@@ -226,6 +273,10 @@ func (p *Processor) mangle(
 		switch md.Rule.ruleType {
 		case Rewrite:
 			tcp.DstPort = layers.TCPPort(md.Rule.port)
+			goto modified
+		case LogTCP:
+			// TODO: optimize?
+			tcp.DstPort = layers.TCPPort(p.servers["log.tcp"].Port())
 			goto modified
 		case Drop:
 			goto drop
@@ -260,71 +311,6 @@ drop:
 	return p.nfq.SetVerdict(rawPacket, netfilter.NF_DROP)
 }
 
-/*
-func (p *Processor) hijackTCP(payload *nfqueue.Payload, packet gopacket.Packet, ip *layers.IPv4, tcp *layers.TCP, body *gopacket.Payload) (err error) {
-	if ip.SrcIP.Equal(p.publicAddr) {
-		// packets back to client
-		if tcp.SrcPort != layers.TCPPort(p.portRules.HijackTCPServerPort) {
-			payload.SetVerdict(nfqueue.NF_ACCEPT)
-			return
-		}
-
-		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Dst(), tcp.TransportFlow().Dst())
-		md := p.Connections.GetByFlow(ck)
-
-		if md == nil {
-			// not tracking
-			payload.SetVerdict(nfqueue.NF_ACCEPT)
-			return
-		}
-		tcp.SrcPort = md.TargetPort
-	} else {
-		// handling packets
-		if rule, ok := p.portRules.Ports[int(tcp.DstPort)]; ok {
-
-			switch rule.Type {
-			case "ignore":
-				payload.SetVerdict(nfqueue.NF_ACCEPT)
-				return
-			case "hijack":
-				tcp.DstPort = layers.TCPPort(p.portRules.HijackTCPServerPort)
-			default:
-				// TODO: Configure behaviour
-				// payload.SetVerdict(nfqueue.NF_ACCEPT); return
-				// payload.SetVerdict(nfqueue.NF_DROP); return
-			}
-
-			ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
-			md := p.Connections.GetByFlow(ck)
-
-			if md == nil {
-				// not tracking
-				payload.SetVerdict(nfqueue.NF_ACCEPT)
-				return
-			}
-		}
-	}
-
-	tcp.SetNetworkLayerForChecksum(ip)
-	buffer := gopacket.NewSerializeBuffer()
-
-	err = gopacket.SerializeLayers(
-		buffer,
-		gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
-		ip, tcp, body,
-	)
-	if err != nil {
-		return err
-	}
-
-	err = payload.SetVerdictModified(nfqueue.NF_ACCEPT, buffer.Bytes())
-	if err != nil {
-		return err
-	}
-
-	return
-}
-*/
 var ethHdr = []byte{
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -398,7 +384,7 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 
 				// FYI: when i don't respond to a SYN, then a duplicate SYN is sent
 				ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
-				p.Connections.Register(ck, rule, tcp.DstPort)
+				p.Connections.Register(ck, rule, ip.NetworkFlow().Src().String(), tcp.TransportFlow().Src().String(), tcp.DstPort)
 			}
 
 			err = p.mangle(rawPacket, packet, &ip, &tcp, &body)
@@ -437,19 +423,30 @@ func (p *Processor) applyRules(packet gopacket.Packet) (*Rule, error) {
 	return nil, nil
 }
 
-func getLocalIP() net.IP {
-	addrs, err := net.InterfaceAddrs()
+func getNonLoopbackIPs(ifaceName string, logger Logger) ([]net.IP, error) {
+	nonLoopback := []net.IP{}
+
+	ifs, err := pcap.FindAllDevs()
 	if err != nil {
-		return nil
+		return nonLoopback, errors.Wrap(err, "pcap.FindAllDevs()")
 	}
-	for _, address := range addrs {
-		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP
+
+	for _, iface := range ifs {
+		if strings.EqualFold(iface.Name, ifaceName) {
+			for _, addr := range iface.Addresses {
+				logger.Debugf("device: %s, addr: %s, isLoopback: %v, isIPv4: %v", ifaceName, addr.IP.String(), addr.IP.IsLoopback(), addr.IP.To4() != nil)
+				if !addr.IP.IsLoopback() && addr.IP.To4() != nil {
+					nonLoopback = append(nonLoopback, addr.IP)
+				}
 			}
 		}
 	}
-	return nil
+
+	if len(nonLoopback) == 0 {
+		return nonLoopback, fmt.Errorf("unable to find any non-loopback addresses for: %s", ifaceName)
+	}
+
+	return nonLoopback, nil
 }
 
 func pcapBPFToXNetBPF(pcapbpf []pcap.BPFInstruction) *bpf.VM {

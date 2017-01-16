@@ -41,22 +41,27 @@ type Metadata struct {
 type connTable struct {
 	table map[ckey]*Metadata
 	mtx   sync.RWMutex
+	log   Logger
 }
 
-func newConnTable() *connTable {
+func newConnTable(logger Logger) *connTable {
 	ct := &connTable{
 		table: make(map[ckey]*Metadata, 1024),
+		log:   logger,
 	}
 	return ct
 }
 
-func (t *connTable) Register(ck ckey, matchedRule *Rule, targetPort layers.TCPPort) {
+// TODO: fix srcIP string inconsistency
+func (t *connTable) Register(ck ckey, matchedRule *Rule, srcIP, srcPort string, targetPort layers.TCPPort) {
 	t.mtx.Lock()
 	defer t.mtx.Unlock()
 
 	if _, ok := t.table[ck]; ok {
 		// TODO: wut?
 	} else {
+		t.log.Debugf("[contable] registering %s:%s->%d", srcIP, srcPort, targetPort)
+
 		t.table[ck] = &Metadata{
 			Added:      time.Now(),
 			Rule:       matchedRule,
