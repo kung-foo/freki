@@ -1,5 +1,5 @@
-hash: c85fb6f3e6ccdf83d33304144157fe7a8cf6c8c07882e360e3105ceada9dd0ca
-updated: 2017-01-14T15:19:15.540074127+01:00
+hash: e91d121ea3b1fb97b1982898b6ac59c104de21f452a82259e0ffb5f4af56e7ca
+updated: 2017-01-16T09:30:43.576378389+01:00
 imports:
 - name: github.com/coreos/go-iptables
   version: 5463fbac3bcc6b990663941c2e12660d19f6b36d
@@ -9,6 +9,8 @@ imports:
   version: 346938d642f2ec3594ed81d874461961cd0faa76
   subpackages:
   - spew
+- name: github.com/docopt/docopt-go
+  version: 784ddc588536785e7299f7272f39101f7faccc3f
 - name: github.com/google/gopacket
   version: b83f94714c36e30ce851be1d5a0a5226f9f1bca4
   subpackages:
