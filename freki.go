@@ -103,7 +103,7 @@ func (p *Processor) resetIPTables() (err error) {
 		for _, chain := range chains {
 			err = p.ipt.Delete(table, chain, rule...)
 			if err != nil {
-				p.log.Errorf("error deleting \"%s %s\": %v", table, chain, err)
+				p.log.Errorf("[freki   ] error deleting \"%s %s\": %v", table, chain, err)
 			}
 		}
 	}
@@ -130,7 +130,7 @@ func (p *Processor) Init() (err error) {
 
 	for _, chain := range chains {
 		filters, _ := p.ipt.List(table, chain)
-		p.log.Debugf("%s %s %+v", table, chain, filters)
+		p.log.Debugf("[freki   ] %s %s %+v", table, chain, filters)
 	}
 
 	// TODO: set sane defaults
@@ -142,10 +142,10 @@ func (p *Processor) Init() (err error) {
 
 	for _, server := range p.servers {
 		go func(s Server) {
-			p.log.Infof("starting %s on %d", s.Type(), s.Port())
+			p.log.Infof("[freki   ] starting %s on %d", s.Type(), s.Port())
 			err := s.Start(p)
 			if err != nil {
-				p.log.Error(err)
+				p.log.Errorf("[freki   ] %v", err)
 			}
 		}(server)
 	}
@@ -167,7 +167,7 @@ func (p *Processor) Shutdown() (err error) {
 }
 
 func (p *Processor) cleanup() (err error) {
-	p.log.Debug("Processor:cleanup()")
+	p.log.Debug("[freki   ] Processor:cleanup()")
 
 	p.resetIPTables()
 
@@ -177,17 +177,27 @@ func (p *Processor) cleanup() (err error) {
 
 	for _, chain := range chains {
 		filters, _ := p.ipt.List(table, chain)
-		p.log.Debugf("%s %s %+v", table, chain, filters)
+		p.log.Debugf("[freki   ] %s %s %+v", table, chain, filters)
 	}
 
 	if p.iface != nil {
+		// TODO: does this really need to stay open the whole time?
 		p.iface.Close()
 	}
+
+	for _, server := range p.servers {
+		err = server.Shutdown()
+		if err != nil {
+			p.log.Errorf("[freki   ] %v", err)
+			err = nil
+		}
+	}
+
 	return
 }
 
 func (p *Processor) Start() (err error) {
-	p.log.Infof("starting freki on %v", p.publicAddrs)
+	p.log.Infof("[freki   ] starting freki on %v", p.publicAddrs)
 
 	go func() {
 		ticker := time.NewTicker(time.Second * 5)
@@ -259,7 +269,7 @@ func (p *Processor) mangle(
 		case PassThrough:
 			goto accept
 		default:
-			p.log.Errorf("rule not implmented: %+v", md.Rule)
+			p.log.Errorf("[freki   ] rule not implmented: %+v", md.Rule)
 		}
 	} else {
 		// packets to honeypots
@@ -283,7 +293,7 @@ func (p *Processor) mangle(
 		case PassThrough:
 			goto accept
 		default:
-			p.log.Errorf("rule not implmented: %+v", md.Rule)
+			p.log.Errorf("[freki   ] rule not implmented: %+v", md.Rule)
 		}
 	}
 
@@ -360,7 +370,7 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 	err = parser.DecodeLayers(packet.Data(), &foundLayerTypes)
 
 	if err != nil {
-		p.log.Error(err, foundLayerTypes)
+		p.log.Errorf("[freki   ] %v %v", err, foundLayerTypes)
 		goto accept
 	}
 
@@ -373,7 +383,7 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 				rule, err = p.applyRules(packet)
 
 				if err != nil {
-					p.log.Error(err)
+					p.log.Errorf("[freki   ] ", err)
 					goto accept
 				}
 
@@ -390,7 +400,7 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 			err = p.mangle(rawPacket, packet, &ip, &tcp, &body)
 
 			if err != nil {
-				p.log.Error(err)
+				p.log.Errorf("[freki   ] %v", err)
 			}
 
 			return
@@ -434,7 +444,7 @@ func getNonLoopbackIPs(ifaceName string, logger Logger) ([]net.IP, error) {
 	for _, iface := range ifs {
 		if strings.EqualFold(iface.Name, ifaceName) {
 			for _, addr := range iface.Addresses {
-				logger.Debugf("device: %s, addr: %s, isLoopback: %v, isIPv4: %v", ifaceName, addr.IP.String(), addr.IP.IsLoopback(), addr.IP.To4() != nil)
+				logger.Debugf("[freki   ] device: %s, addr: %s, isLoopback: %v, isIPv4: %v", ifaceName, addr.IP.String(), addr.IP.IsLoopback(), addr.IP.To4() != nil)
 				if !addr.IP.IsLoopback() && addr.IP.To4() != nil {
 					nonLoopback = append(nonLoopback, addr.IP)
 				}

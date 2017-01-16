@@ -39,6 +39,7 @@ func (h *TCPLogger) Start(p *Processor) error {
 	h.log = h.processor.log
 
 	var err error
+	// TODO: can I be more specific with the bind addr?
 	h.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", h.port))
 
 	if err != nil {
@@ -71,7 +72,7 @@ func (h *TCPLogger) Start(p *Processor) error {
 			}
 			buffer := make([]byte, h.readSize)
 			n, _ := conn.Read(buffer)
-			p.log.Infof("%s -> %s\n%s", host, md.TargetPort, hex.Dump(buffer[0:n]))
+			p.log.Infof("[log.tcp ] %s -> %s\n%s", host, md.TargetPort, hex.Dump(buffer[0:n]))
 		}(conn)
 	}
 }

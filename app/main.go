@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	docopt "github.com/docopt/docopt-go"
@@ -66,7 +67,10 @@ func mainEx(argv []string) {
 	err = processor.Init()
 	onErrorExit(err)
 
+	exitMtx := sync.RWMutex{}
 	exit := func() {
+		exitMtx.Lock()
+		println() // make it look nice after the ^C
 		onErrorExit(processor.Shutdown())
 		os.Exit(0)
 	}
