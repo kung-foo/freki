@@ -72,7 +72,11 @@ func (h *TCPLogger) Start(p *Processor) error {
 			}
 			buffer := make([]byte, h.readSize)
 			n, _ := conn.Read(buffer)
-			p.log.Infof("[log.tcp ] %s -> %s\n%s", host, md.TargetPort, hex.Dump(buffer[0:n]))
+			if n > 0 {
+				p.log.Infof("[log.tcp ] %s -> %s\n%s", host, md.TargetPort, hex.Dump(buffer[0:n]))
+			} else {
+				p.log.Infof("[log.tcp ] %s -> %s", host, md.TargetPort)
+			}
 		}(conn)
 	}
 }
