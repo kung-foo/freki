@@ -3,6 +3,20 @@ freki
 
 The ravenous and greedy one.
 
+**Freki** is a tool for manipulating packets in userspace. Using iptable's raw table, packets are routed down into userspace where **freki** takes over. A set of rules is applied allowing for a large amount of flexibility. For example, you can forward all tcp ports to an HTTP honeypot and log the requests. Or you can proxy tcp port 22 into a docker container running an ssh honeypot.
+
+There are currently two builtin loggers:
+
+`log_tcp`: reads up to 1024 bytes from the connection, and then closes it.
+
+`log_http`: sends a 200 OK back on every request.
+
+Additionally, there are two mangling behaviours:
+
+`rewrite`: Rewrites the incoming packet's destination port
+
+`proxy`: Creates a TCP proxy for the connection to the specified target (can be an IP address, host name, or docker container)
+
 ```
 $ ./bin/freki --help
 Usage:
