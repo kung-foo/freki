@@ -3,6 +3,25 @@ freki
 
 The ravenous and greedy one.
 
+```
+$ ./bin/freki --help
+Usage:
+    freki [options] [-v ...] -i=<interface> -r=<rules>
+    freki -h | --help | --version
+Options:
+    -i --interface=<iface>  Bind to this interface.
+    -r --rules=<rules>      Rules file.
+    -h --help               Show this screen.
+    --version               Show version.
+    -v                      Enable verbose logging (-vv for very verbose)
+```
+
+Build
+-----
+
+requires: go 1.7+, libnetfilter-queue-dev, libpcap-dev
+
+
 Rules Specification
 -------------------
 
