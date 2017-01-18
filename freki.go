@@ -1,6 +1,7 @@
 package freki
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -9,6 +10,9 @@ import (
 	"time"
 
 	"golang.org/x/net/bpf"
+
+	"github.com/docker/engine-api/client"
+	"github.com/docker/engine-api/types"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/gopacket"
@@ -131,6 +135,41 @@ func (p *Processor) resetIPTables() (err error) {
 }
 
 func (p *Processor) Init() (err error) {
+	for _, rule := range p.rules {
+		if rule.ruleType == ProxyTCP {
+			if rule.targetURL.Scheme == "docker" {
+				p.log.Debugf("[freki   ] Creating Docker client with version: %v", client.DefaultVersion)
+				var cli *client.Client
+				cli, err = client.NewEnvClient()
+				if err != nil {
+					return err
+				}
+
+				var containers []types.Container
+				containers, err = cli.ContainerList(context.Background(), types.ContainerListOptions{})
+				if err != nil {
+					return err
+				}
+
+				found := false
+				for _, container := range containers {
+					name := container.Names[0][1:]
+					if name == rule.host {
+						addr := container.NetworkSettings.Networks["bridge"].IPAddress
+						p.log.Debugf("[freki   ] mapping docker://%s:%d to tcp://%s:%d", rule.host, rule.port, addr, rule.port)
+						rule.targetURL.Host = fmt.Sprintf("%s:%s", addr, rule.targetURL.Port())
+						rule.host = addr
+						found = true
+					}
+				}
+
+				if !found {
+					return fmt.Errorf("unabled to find a container named: %s", rule.host)
+				}
+			}
+		}
+	}
+
 	p.ipt, err = iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		return
@@ -143,7 +182,6 @@ func (p *Processor) Init() (err error) {
 	}
 
 	// TODO: check for conflicting rules
-
 	err = p.initIPTables()
 	if err != nil {
 		return

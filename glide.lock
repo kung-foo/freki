@@ -1,14 +1,41 @@
-hash: e91d121ea3b1fb97b1982898b6ac59c104de21f452a82259e0ffb5f4af56e7ca
-updated: 2017-01-16T09:30:43.576378389+01:00
+hash: 3b7cb7977eb1c241ee82e4e3653e3e3d98a16fb668d0e664f7a3843bcc1a0204
+updated: 2017-01-18T20:37:20.574525485+01:00
 imports:
 - name: github.com/coreos/go-iptables
   version: 5463fbac3bcc6b990663941c2e12660d19f6b36d
   subpackages:
   - iptables
-- name: github.com/davecgh/go-spew
-  version: 346938d642f2ec3594ed81d874461961cd0faa76
+- name: github.com/docker/distribution
+  version: 954b4e8154815e0b7c8ac7d73504046a0dbae281
   subpackages:
-  - spew
+  - digestset
+  - reference
+- name: github.com/docker/engine-api
+  version: 4290f40c056686fcaa5c9caf02eac1dde9315adf
+  subpackages:
+  - client
+  - client/transport
+  - client/transport/cancellable
+  - types
+  - types/blkiodev
+  - types/container
+  - types/filters
+  - types/mount
+  - types/network
+  - types/reference
+  - types/registry
+  - types/strslice
+  - types/swarm
+  - types/time
+  - types/versions
+- name: github.com/docker/go-connections
+  version: eb315e36415380e7c2fdee175262560ff42359da
+  subpackages:
+  - nat
+  - sockets
+  - tlsconfig
+- name: github.com/docker/go-units
+  version: e30f1e79f3cd72542f2026ceec18d3bd67ab859c
 - name: github.com/docopt/docopt-go
   version: 784ddc588536785e7299f7272f39101f7faccc3f
 - name: github.com/google/gopacket
@@ -18,7 +45,7 @@ imports:
   - pcap
 - name: github.com/pkg/errors
   version: 645ef00459ed84a119197bfb8d8205042c6df63d
-- name: github.com/sirupsen/logrus
+- name: github.com/Sirupsen/logrus
   version: d26492970760ca5d33129d2d799e34be5c4782eb
 - name: gopkg.in/yaml.v2
   version: a5b47d31c556af34a302ce5d659e6fea44d90de0

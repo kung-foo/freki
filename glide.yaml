@@ -6,20 +6,23 @@ owners:
 ignore:
 - golang.org/x/sys
 - golang.org/x/net
+- github.com/Microsoft/go-winio
+- github.com/opencontainers/go-digest
 import:
 - package: github.com/google/gopacket
   version: ^1.1.12
   subpackages:
   - layers
-- package: github.com/sirupsen/logrus
+- package: github.com/Sirupsen/logrus
   version: ^0.11.0
 - package: github.com/coreos/go-iptables
-- package: github.com/davecgh/go-spew
-  version: ^1.1.0
-  subpackages:
-  - spew
+  version: 5463fbac3bcc6b990663941c2e12660d19f6b36d
 - package: gopkg.in/yaml.v2
 - package: github.com/pkg/errors
   version: ^0.8.0
 - package: github.com/docopt/docopt-go
   version: ^0.6.2
+- package: github.com/docker/go-connections
+- package: github.com/docker/engine-api
+  subpackages:
+  - client

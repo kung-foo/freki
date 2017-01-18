@@ -65,7 +65,7 @@ func (p *TCPProxy) handleConnection(conn net.Conn) {
 
 	target := md.Rule.targetURL
 
-	if target.Scheme != "tcp" {
+	if target.Scheme != "tcp" && target.Scheme != "docker" {
 		p.log.Error(fmt.Errorf("unsuppported scheme: %s", target.Scheme))
 		return
 	}

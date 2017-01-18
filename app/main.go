@@ -5,9 +5,9 @@ import (
 	"os/signal"
 	"sync"
 
+	log "github.com/Sirupsen/logrus"
 	docopt "github.com/docopt/docopt-go"
 	"github.com/kung-foo/freki"
-	log "github.com/sirupsen/logrus"
 )
 
 // VERSION is set by the makefile

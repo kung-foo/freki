@@ -1,26 +1,22 @@
-# drop -- drops everything
-# logging_tcp -- establishes a connection (3 way handshake), attempts to read X bytes, then closes the connnection. log everything
-# ignore -- simply mark the packets as accepted
-# spoof-- pretend to be something else. could come in multiple flavors like http or telnet
-# rewrite -- rewrite the destination port to target a 3rd party honeypot. we would need to expose the original source port via an api such that the external process could log it.
-# proxy -- this is slightly different from rewrite in that we could proxy the connection to an off-box addr (i.e. google.com)
 rules:
-    - match: tcp dst port 10022
-      type: rewrite
-      target: 22
-    - match: tcp dst port 9200
-      type: proxy
-      target: docker://elasticsearch:9200
-    - match: tcp dst port 666
-      type: proxy
-      target: tcp://portquiz.net:666
-    - match: tcp port 80 or tcp port 8080
-      type: log_http
-    - match: tcp portrange 5000-5010
-      type: drop
-    - match: tcp port 8888
-      type: drop
-    - match: tcp
-      type: log_tcp
-    - match:
-      type: passthrough
+  - match: tcp dst port 22 and src host 1.2.3.4
+    type: passthrough
+  - match: tcp dst port 10022
+    type: rewrite
+    target: 22
+  - match: tcp dst port 6379
+    type: proxy
+    target: docker://redis:6379
+  - match: tcp dst port 666
+    type: proxy
+    target: tcp://portquiz.net:666
+  - match: tcp port 80 or tcp port 8080
+    type: log_http
+  - match: tcp portrange 5000-5010
+    type: drop
+  - match: tcp port 8888
+    type: drop
+  - match: tcp
+    type: log_tcp
+  - match:
+    type: passthrough
