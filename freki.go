@@ -22,16 +22,36 @@ const table = "raw"
 
 var chains = []string{"PREROUTING", "OUTPUT"}
 
-// TODO: add "-i iface" to PREROUTING
-func genRule(protocol, queuespec string) []string {
-	return strings.Split(fmt.Sprintf("-p,%s,-j,NFQUEUE,--queue-num,%s", protocol, queuespec), ",")
+func genRuleSpec(chain, iface, protocol, queuespec string) []string {
+	spec := "-p,%s,-j,NFQUEUE,--queue-num,%s"
+	if chain == "PREROUTING" {
+		spec = "-i,%s," + spec
+	}
+	if chain == "OUTPUT" {
+		spec = "-o,%s," + spec
+	}
+	return strings.Split(fmt.Sprintf(spec, iface, protocol, queuespec), ",")
+}
+
+type iptrule struct {
+	table    string
+	chain    string
+	rulespec []string
+}
+
+func (r *iptrule) Append(ipt *iptables.IPTables) error {
+	return ipt.AppendUnique(r.table, r.chain, r.rulespec...)
+}
+
+func (r *iptrule) Delete(ipt *iptables.IPTables) error {
+	return ipt.Delete(r.table, r.chain, r.rulespec...)
 }
 
 type Processor struct {
 	log              Logger
 	rules            []*Rule
 	ipt              *iptables.IPTables
-	iptRules         [][]string
+	iptRules         []iptrule
 	nfq              *netfilter.Queue
 	cleanupOnce      sync.Once
 	Connections      *connTable
@@ -64,7 +84,7 @@ func New(ifaceName string, rules []*Rule, logger Logger) (*Processor, error) {
 	processor := &Processor{
 		rules:       rules,
 		log:         logger,
-		iptRules:    make([][]string, 0),
+		iptRules:    make([]iptrule, 0),
 		Connections: newConnTable(logger),
 		shutdown:    make(chan struct{}),
 		publicAddrs: nonLoopbackAddrs,
@@ -73,11 +93,15 @@ func New(ifaceName string, rules []*Rule, logger Logger) (*Processor, error) {
 	}
 
 	// TODO: customize protocols
-	processor.iptRules = append(processor.iptRules,
-		genRule("tcp", "0"),
-		// genRule("udp", "0"),
-		// genRule("icmp", "0"),
-	)
+
+	for _, chain := range chains {
+		r := iptrule{
+			table:    table,
+			chain:    chain,
+			rulespec: genRuleSpec(chain, ifaceName, "tcp", "0"),
+		}
+		processor.iptRules = append(processor.iptRules, r)
+	}
 
 	return processor, nil
 }
@@ -88,11 +112,9 @@ func (p *Processor) AddServer(s Server) {
 
 func (p *Processor) initIPTables() (err error) {
 	for _, rule := range p.iptRules {
-		for _, chain := range chains {
-			err = p.ipt.AppendUnique(table, chain, rule...)
-			if err != nil {
-				return
-			}
+		err = rule.Append(p.ipt)
+		if err != nil {
+			return errors.Wrap(err, fmt.Sprintf("%+v", rule))
 		}
 	}
 	return
@@ -100,11 +122,9 @@ func (p *Processor) initIPTables() (err error) {
 
 func (p *Processor) resetIPTables() (err error) {
 	for _, rule := range p.iptRules {
-		for _, chain := range chains {
-			err = p.ipt.Delete(table, chain, rule...)
-			if err != nil {
-				p.log.Errorf("[freki   ] error deleting \"%s %s\": %v", table, chain, err)
-			}
+		err = rule.Delete(p.ipt)
+		if err != nil {
+			p.log.Errorf("[freki   ] error deleting: %+v", rule)
 		}
 	}
 	return
@@ -116,7 +136,8 @@ func (p *Processor) Init() (err error) {
 		return
 	}
 
-	_, err = p.ipt.List("filter", "INPUT")
+	// quick permissions test
+	_, err = p.ipt.List(table, chains[0])
 	if err != nil {
 		return
 	}
@@ -261,7 +282,7 @@ func (p *Processor) mangle(
 		}
 
 		switch md.Rule.ruleType {
-		case Rewrite, LogTCP:
+		case Rewrite, LogTCP, LogHTTP, ProxyTCP:
 			tcp.SrcPort = layers.TCPPort(md.TargetPort)
 			goto modified
 		case Drop:
@@ -287,6 +308,13 @@ func (p *Processor) mangle(
 		case LogTCP:
 			// TODO: optimize?
 			tcp.DstPort = layers.TCPPort(p.servers["log.tcp"].Port())
+			goto modified
+		case LogHTTP:
+			// TODO: optimize?
+			tcp.DstPort = layers.TCPPort(p.servers["log.http"].Port())
+			goto modified
+		case ProxyTCP:
+			tcp.DstPort = layers.TCPPort(p.servers["proxy.tcp"].Port())
 			goto modified
 		case Drop:
 			goto drop
@@ -383,7 +411,7 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 				rule, err = p.applyRules(packet)
 
 				if err != nil {
-					p.log.Errorf("[freki   ] ", err)
+					p.log.Errorf("[freki   ] %v", err)
 					goto accept
 				}
 
