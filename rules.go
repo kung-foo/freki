@@ -19,7 +19,7 @@ type RuleType int
 
 const (
 	Rewrite RuleType = iota
-	Proxy
+	ProxyTCP
 	LogTCP
 	LogHTTP
 	Drop
@@ -70,11 +70,15 @@ func ParseRuleSpec(spec []byte) ([]*Rule, error) {
 }
 
 func initRule(idx int, rule *Rule, iface *pcap.Handle) error {
+	if rule.isInit {
+		return nil
+	}
+
 	switch rule.Type {
 	case "rewrite":
 		rule.ruleType = Rewrite
 	case "proxy":
-		rule.ruleType = Proxy
+		rule.ruleType = ProxyTCP
 	case "log_tcp":
 		rule.ruleType = LogTCP
 	case "log_http":
@@ -98,7 +102,7 @@ func initRule(idx int, rule *Rule, iface *pcap.Handle) error {
 
 	if rule.Target != "" {
 		var err error
-		if rule.ruleType == Proxy {
+		if rule.ruleType == ProxyTCP {
 			rule.targetURL, err = url.Parse(rule.Target)
 
 			if err != nil {
