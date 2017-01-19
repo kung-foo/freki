@@ -155,9 +155,10 @@ func (p *Processor) Init() (err error) {
 				for _, container := range containers {
 					name := container.Names[0][1:]
 					if name == rule.host {
+						// TODO: find correct network
 						addr := container.NetworkSettings.Networks["bridge"].IPAddress
 						p.log.Debugf("[freki   ] mapping docker://%s:%d to tcp://%s:%d", rule.host, rule.port, addr, rule.port)
-						rule.targetURL.Host = fmt.Sprintf("%s:%s", addr, rule.targetURL.Port())
+						rule.targetURL.Host = fmt.Sprintf("tcp://%s:%d", addr, rule.port)
 						rule.host = addr
 						found = true
 					}
