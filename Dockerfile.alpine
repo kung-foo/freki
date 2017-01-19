@@ -1,0 +1,6 @@
+FROM golang:1.8-alpine
+
+RUN apk update && apk add libpcap-dev libnetfilter_queue-dev git gcc libc-dev linux-headers
+RUN go get golang.org/x/net/bpf
+RUN go get golang.org/x/net/context
+RUN go get golang.org/x/net/proxy
