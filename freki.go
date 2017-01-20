@@ -447,6 +447,9 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 			// TODO: validate logic
 			if tcp.SYN && !tcp.ACK {
 				var rule *Rule
+				srcIP := ip.NetworkFlow().Src()
+				srcPort := tcp.TransportFlow().Src()
+				p.log.Debugf("[freki   ] new connection %s:%s->%d", srcIP.String(), srcPort.String(), tcp.DstPort)
 				rule, err = p.applyRules(packet)
 
 				if err != nil {
@@ -460,8 +463,8 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 				}
 
 				// FYI: when i don't respond to a SYN, then a duplicate SYN is sent
-				ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
-				p.Connections.Register(ck, rule, ip.NetworkFlow().Src().String(), tcp.TransportFlow().Src().String(), tcp.DstPort)
+				ck := NewConnKeyByEndpoints(srcIP, srcPort)
+				p.Connections.Register(ck, rule, srcIP.String(), srcPort.String(), tcp.DstPort)
 			}
 
 			err = p.mangle(rawPacket, packet, &ip, &tcp, &body)
