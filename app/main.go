@@ -15,7 +15,7 @@ var VERSION = "0.0.0"
 
 var usage = `
 Usage:
-    freki [options] [-v ...] -i=<interface> -r=<rules>
+    freki [options] [-v ...] -i <interface> -r <rules>
     freki -h | --help | --version
 Options:
     -i --interface=<iface>  Bind to this interface.

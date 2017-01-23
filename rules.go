@@ -34,6 +34,7 @@ type Rule struct {
 	Match  string `yaml:"match"`
 	Type   string `yaml:"type"`
 	Target string `yaml:"target,omitempty"`
+	Name   string `yaml:"name,omitempty"`
 
 	isInit    bool
 	ruleType  RuleType
