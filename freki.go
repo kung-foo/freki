@@ -340,20 +340,34 @@ func (p *Processor) mangle(
 			goto accept
 		}
 
+		var s Server
+		var ok bool
+
 		switch md.Rule.ruleType {
 		case Rewrite:
 			tcp.DstPort = layers.TCPPort(md.Rule.port)
 			goto modified
 		case LogTCP:
 			// TODO: optimize?
-			tcp.DstPort = layers.TCPPort(p.servers["log.tcp"].Port())
+			if s, ok = p.servers["log.tcp"]; !ok {
+				return fmt.Errorf("No TCPLogger installed")
+			}
+			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
 		case LogHTTP:
 			// TODO: optimize?
-			tcp.DstPort = layers.TCPPort(p.servers["log.http"].Port())
+			if s, ok = p.servers["log.http"]; !ok {
+				return fmt.Errorf("No HTTPLogger installed")
+			}
+			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
+
 		case ProxyTCP:
-			tcp.DstPort = layers.TCPPort(p.servers["proxy.tcp"].Port())
+			// TODO: optimize?
+			if s, ok = p.servers["log.tcp"]; !ok {
+				return fmt.Errorf("No TCPPLogger installed")
+			}
+			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
 		case Drop:
 			goto drop
@@ -468,11 +482,6 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 			}
 
 			err = p.mangle(rawPacket, packet, &ip, &tcp, &body)
-
-			if err != nil {
-				p.log.Errorf("[freki   ] %v", err)
-			}
-
 			return
 		}
 	}

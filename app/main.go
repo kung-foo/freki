@@ -37,7 +37,7 @@ func main() {
 
 func onErrorExit(err error) {
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("[freki   ] %+v", err)
 	}
 }
 
@@ -109,5 +109,8 @@ func mainEx(argv []string) {
 		}()
 	*/
 
-	onErrorExit(processor.Start())
+	err = processor.Start()
+	if err != nil {
+		log.Errorf("[freki   ] %+v", err)
+	}
 }
