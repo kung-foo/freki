@@ -364,8 +364,8 @@ func (p *Processor) mangle(
 
 		case ProxyTCP:
 			// TODO: optimize?
-			if s, ok = p.servers["log.tcp"]; !ok {
-				return fmt.Errorf("No TCPPLogger installed")
+			if s, ok = p.servers["proxy.tcp"]; !ok {
+				return fmt.Errorf("No TCPProxy installed")
 			}
 			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified

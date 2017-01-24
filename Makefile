@@ -1,4 +1,4 @@
-VERSION := 1.0.2
+VERSION := 1.0.3
 NAME := freki
 GH_PATH := github.com/kung-foo/$(NAME)
 BUILDSTRING := $(shell git log --pretty=format:'%h' -n 1)
