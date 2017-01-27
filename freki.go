@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -273,7 +274,16 @@ func (p *Processor) Start() (err error) {
 	}()
 
 	// TODO: discover how "Run" returns
-	go p.nfq.Run()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Errorf("[freki   ] panic: %+v", r)
+				p.log.Errorf("[freki   ] stacktrace:\n%v", string(debug.Stack()))
+				p.shutdown <- struct{}{}
+			}
+		}()
+		p.nfq.Run()
+	}()
 
 	return p.loop()
 }
