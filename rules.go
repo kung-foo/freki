@@ -20,6 +20,7 @@ type RuleType int
 const (
 	Rewrite RuleType = iota
 	ProxyTCP
+	ProxySSH
 	LogTCP
 	LogHTTP
 	Drop
@@ -80,6 +81,8 @@ func initRule(idx int, rule *Rule, iface *pcap.Handle) error {
 		rule.ruleType = Rewrite
 	case "proxy":
 		rule.ruleType = ProxyTCP
+	case "proxy_ssh":
+		rule.ruleType = ProxySSH
 	case "log_tcp":
 		rule.ruleType = LogTCP
 	case "log_http":
@@ -103,7 +106,7 @@ func initRule(idx int, rule *Rule, iface *pcap.Handle) error {
 
 	if rule.Target != "" {
 		var err error
-		if rule.ruleType == ProxyTCP {
+		if rule.ruleType == ProxyTCP || rule.ruleType == ProxySSH {
 			rule.targetURL, err = url.Parse(rule.Target)
 
 			if err != nil {

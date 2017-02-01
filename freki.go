@@ -137,7 +137,7 @@ func (p *Processor) resetIPTables() (err error) {
 
 func (p *Processor) Init() (err error) {
 	for _, rule := range p.rules {
-		if rule.ruleType == ProxyTCP {
+		if rule.ruleType == ProxyTCP || rule.ruleType == ProxySSH {
 			if rule.targetURL.Scheme == "docker" {
 				p.log.Debugf("[freki   ] Creating Docker client with version: %v", client.DefaultVersion)
 				var cli *client.Client
@@ -331,7 +331,7 @@ func (p *Processor) mangle(
 		}
 
 		switch md.Rule.ruleType {
-		case Rewrite, LogTCP, LogHTTP, ProxyTCP:
+		case Rewrite, LogTCP, LogHTTP, ProxyTCP, ProxySSH:
 			tcp.SrcPort = layers.TCPPort(md.TargetPort)
 			goto modified
 		case Drop:
@@ -379,6 +379,10 @@ func (p *Processor) mangle(
 			}
 			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
+		case ProxySSH:
+			if s, ok = p.servers["proxy.ssh"]; !ok {
+				return fmt.Errorf("No SSHProxy installed")
+			}
 		case Drop:
 			goto drop
 		case PassThrough:
