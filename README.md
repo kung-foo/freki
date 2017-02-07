@@ -39,7 +39,7 @@ requires: go 1.7+, libnetfilter-queue-dev, libpcap-dev, iptables-dev
 Rules Specification
 -------------------
 
-Rules are applied in order (top down) and stop after a match is found. The `match` field (required) is written using [BPF filter](https://biot.com/capstats/bpf.html) syntax. Note: not all filters make apply. For example, the ethernet src and dst headers are generally zero'd out.
+Rules are applied in order (top down) and stop after a match is found. The `match` field (required) is written using [BPF filter](https://biot.com/capstats/bpf.html) syntax. Note: not all filters may apply. For example, the ethernet src and dst headers are generally zero'd out.
 
 ```yaml
 rules:
