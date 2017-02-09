@@ -1,0 +1,14 @@
+version: '2'
+services:
+  freki:
+    build: .
+    cap_add:
+      - NET_ADMIN
+    links:
+      - tinyproxy
+    volumes:
+      - ./rules.yaml:/root/rules.yaml:ro
+    command: freki -i eth0 -r rules.yaml
+  tinyproxy:
+    image: dannydirect/tinyproxy
+    command: ANY

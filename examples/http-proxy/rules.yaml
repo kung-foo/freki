@@ -1,0 +1,6 @@
+rules:
+  - match: tcp portrange 5000-5010
+    type: proxy
+    target: tcp://tinyproxy:8888
+  - match:
+    type: passthrough
