@@ -29,6 +29,7 @@ const (
 	tcpLoggerPort  = 6000
 	httpLoggerPort = 6001
 	tcpProxyPort   = 6002
+	sshProxyPort   = 6003
 )
 
 func main() {
@@ -77,6 +78,7 @@ func mainEx(argv []string) {
 	processor.AddServer(freki.NewTCPLogger(tcpLoggerPort, 1024))
 	processor.AddServer(freki.NewHTTPLogger(httpLoggerPort))
 	processor.AddServer(freki.NewTCPProxy(tcpProxyPort))
+	processor.AddServer(freki.NewSSHProxy(sshProxyPort))
 
 	err = processor.Init()
 	onErrorExit(err)

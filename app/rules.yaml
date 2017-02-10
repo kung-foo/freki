@@ -4,6 +4,9 @@ rules:
   - match: tcp dst port 10022
     type: rewrite
     target: 22
+  - match: tcp dst port 6003
+    type: proxy_ssh
+    target: tcp://192.168.1.101:22
   - match: tcp dst port 6379
     type: proxy
     target: docker://redis:6379
