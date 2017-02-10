@@ -52,6 +52,8 @@ func (r *iptrule) Delete(ipt *iptables.IPTables) error {
 	return ipt.Delete(r.table, r.chain, r.rulespec...)
 }
 
+type ConnHandlerFunc func(conn net.Conn, md *Metadata) error
+
 type Processor struct {
 	log              Logger
 	rules            []*Rule
@@ -65,6 +67,7 @@ type Processor struct {
 	publicAddrs      []net.IP
 	iface            *pcap.Handle
 	servers          map[string]Server
+	connHandlers     map[string]ConnHandlerFunc
 }
 
 func New(ifaceName string, rules []*Rule, logger Logger) (*Processor, error) {
@@ -87,14 +90,15 @@ func New(ifaceName string, rules []*Rule, logger Logger) (*Processor, error) {
 	}
 
 	processor := &Processor{
-		rules:       rules,
-		log:         logger,
-		iptRules:    make([]iptrule, 0),
-		Connections: newConnTable(logger),
-		shutdown:    make(chan struct{}),
-		publicAddrs: nonLoopbackAddrs,
-		iface:       iface,
-		servers:     make(map[string]Server, 0),
+		rules:        rules,
+		log:          logger,
+		iptRules:     make([]iptrule, 0),
+		Connections:  newConnTable(logger),
+		shutdown:     make(chan struct{}),
+		publicAddrs:  nonLoopbackAddrs,
+		iface:        iface,
+		servers:      make(map[string]Server, 0),
+		connHandlers: make(map[string]ConnHandlerFunc, 0),
 	}
 
 	// TODO: customize protocols
@@ -113,6 +117,14 @@ func New(ifaceName string, rules []*Rule, logger Logger) (*Processor, error) {
 
 func (p *Processor) AddServer(s Server) {
 	p.servers[s.Type()] = s
+}
+
+func (p *Processor) RegisterConnHandler(target string, handler ConnHandlerFunc) error {
+	if _, ok := p.connHandlers[target]; ok {
+		return fmt.Errorf("conn handler already registered for %s", target)
+	}
+	p.connHandlers[target] = handler
+	return nil
 }
 
 func (p *Processor) initIPTables() (err error) {
@@ -331,7 +343,7 @@ func (p *Processor) mangle(
 		}
 
 		switch md.Rule.ruleType {
-		case Rewrite, LogTCP, LogHTTP, ProxyTCP:
+		case Rewrite, LogTCP, LogHTTP, ProxyTCP, UserConnHandler:
 			tcp.SrcPort = layers.TCPPort(md.TargetPort)
 			goto modified
 		case Drop:
@@ -376,6 +388,12 @@ func (p *Processor) mangle(
 			// TODO: optimize?
 			if s, ok = p.servers["proxy.tcp"]; !ok {
 				return fmt.Errorf("No TCPProxy installed")
+			}
+			tcp.DstPort = layers.TCPPort(s.Port())
+			goto modified
+		case UserConnHandler:
+			if s, ok = p.servers["user.tcp"]; !ok {
+				return fmt.Errorf("No ConnHandler installed")
 			}
 			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
