@@ -1,6 +1,8 @@
 package main
 
 import (
+	"io"
+	"net"
 	"os"
 	"os/signal"
 	"sync"
@@ -26,9 +28,10 @@ Options:
 `
 
 const (
-	tcpLoggerPort  = 6000
-	httpLoggerPort = 6001
-	tcpProxyPort   = 6002
+	tcpLoggerPort      = 6000
+	httpLoggerPort     = 6001
+	tcpProxyPort       = 6002
+	userConnServerPort = 6003
 )
 
 func main() {
@@ -74,9 +77,19 @@ func mainEx(argv []string) {
 	processor, err := freki.New(args["--interface"].(string), rules, logger)
 	onErrorExit(err)
 
+	// TODO: this all needs to move _inside_ freki
 	processor.AddServer(freki.NewTCPLogger(tcpLoggerPort, 1024))
 	processor.AddServer(freki.NewHTTPLogger(httpLoggerPort))
 	processor.AddServer(freki.NewTCPProxy(tcpProxyPort))
+	processor.AddServer(freki.NewUserConnServer(userConnServerPort))
+
+	processor.RegisterConnHandler("echo", func(conn net.Conn, md *freki.Metadata) error {
+		defer conn.Close()
+		host, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+		logger.Infof("[main    ] echo request %s -> %d", host, uint(md.TargetPort))
+		io.Copy(conn, conn)
+		return nil
+	})
 
 	err = processor.Init()
 	onErrorExit(err)
@@ -94,20 +107,6 @@ func mainEx(argv []string) {
 		exit()
 		os.Exit(0)
 	})
-
-	/*
-		go func() {
-			pp := uint64(0)
-			for range time.NewTicker(time.Second * 5).C {
-				t := processor.PacketsProcessed()
-				pps := (t - pp) / uint64(5)
-				if pps > 0 {
-					logger.Debugf("PPS: %d", pps)
-				}
-				pp = t
-			}
-		}()
-	*/
 
 	err = processor.Start()
 	if err != nil {

@@ -1,3 +1,4 @@
+version: 1
 rules:
   - match: tcp dst port 22 and src host 1.2.3.4
     type: passthrough
@@ -14,6 +15,9 @@ rules:
     type: log_http
   - match: tcp portrange 5000-5010
     type: drop
+  - match: tcp portrange 7000-8000
+    type: conn_handler
+    target: echo
   - match: tcp port 8888
     type: drop
   - match: tcp
