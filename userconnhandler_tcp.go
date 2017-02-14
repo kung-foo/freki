@@ -48,8 +48,7 @@ func (h *UserConnServer) Start(processor *Processor) error {
 			continue
 		}
 
-		host, port, _ := net.SplitHostPort(conn.RemoteAddr().String())
-		ck := NewConnKeyByString(host, port)
+		ck := NewConnKeyFromNetConn(conn)
 		md := h.processor.Connections.GetByFlow(ck)
 
 		if md == nil {
