@@ -22,12 +22,14 @@ const (
 	ProxyTCP
 	LogTCP
 	LogHTTP
+	UserConnHandler
 	Drop
 	PassThrough
 )
 
 type Config struct {
-	Rules []*Rule `yaml:"rules"`
+	Version int     `yaml:"version"`
+	Rules   []*Rule `yaml:"rules"`
 }
 
 type Rule struct {
@@ -67,6 +69,15 @@ func ParseRuleSpec(spec []byte) ([]*Rule, error) {
 		return nil, err
 	}
 
+	if config.Version == 0 {
+		// TODO: log warning
+		config.Version = 1
+	}
+
+	if config.Version != 1 {
+		return nil, fmt.Errorf("unsupported rules version: %v", config.Version)
+	}
+
 	return config.Rules, err
 }
 
@@ -84,6 +95,8 @@ func initRule(idx int, rule *Rule, iface *pcap.Handle) error {
 		rule.ruleType = LogTCP
 	case "log_http":
 		rule.ruleType = LogHTTP
+	case "conn_handler":
+		rule.ruleType = UserConnHandler
 	case "drop":
 		rule.ruleType = Drop
 	case "passthrough":

@@ -31,6 +31,11 @@ func NewConnKeyByString(host, port string) ckey {
 	return NewConnKeyByEndpoints(clientAddr, clientPort)
 }
 
+func NewConnKeyFromNetConn(conn net.Conn) ckey {
+	host, port, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	return NewConnKeyByString(host, port)
+}
+
 type Metadata struct {
 	Added      time.Time
 	Rule       *Rule
