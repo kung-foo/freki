@@ -11,11 +11,14 @@ There are currently two builtin loggers:
 
 `log_http`: sends a 200 OK back on every request.
 
-Additionally, there are two mangling behaviours:
+Additionally, there are three mangling behaviors:
 
 `rewrite`: Rewrites the incoming packet's destination port
 
 `proxy`: Creates a TCP proxy for the connection to the specified target (can be an IP address, host name, or docker container)
+
+`user_conn`: When using **freki** as a library, invoke a user-specified
+callback with a `net.Conn`
 
 ```
 $ ./bin/freki --help
@@ -61,6 +64,10 @@ rules:
   # log http requests on 80 and 8080
   - match: tcp port 80 or tcp port 8080
     type: log_http
+  # pass connections on 7000 through 8000 to a registered handler called 'echo'
+  - match: tcp portrange 7000-8000
+    type: conn_handler
+    target: echo
   # drop (no FIN, nothing!)
   - match: tcp portrange 5000-5010
     type: drop
