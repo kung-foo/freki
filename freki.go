@@ -55,7 +55,6 @@ func (r *iptrule) Delete(ipt *iptables.IPTables) error {
 type ConnHandlerFunc func(conn net.Conn, md *Metadata) error
 
 type Processor struct {
-	log              Logger
 	rules            []*Rule
 	ipt              *iptables.IPTables
 	iptRules         []iptrule
@@ -70,7 +69,7 @@ type Processor struct {
 	connHandlers     map[string]ConnHandlerFunc
 }
 
-func New(ifaceName string, rules []*Rule, logger Logger) (*Processor, error) {
+func New(ifaceName string, rules []*Rule, log Logger) (*Processor, error) {
 	iface, err := pcap.OpenLive(ifaceName, 1, false, time.Second)
 
 	if err != nil {
@@ -84,16 +83,20 @@ func New(ifaceName string, rules []*Rule, logger Logger) (*Processor, error) {
 		}
 	}
 
-	nonLoopbackAddrs, err := getNonLoopbackIPs(ifaceName, logger)
+	nonLoopbackAddrs, err := getNonLoopbackIPs(ifaceName)
 	if err != nil {
 		return nil, err
 	}
 
+	// TODO: in 2.0, remove logger parameter
+	if logger != nil {
+		logger = log
+	}
+
 	processor := &Processor{
 		rules:        rules,
-		log:          logger,
 		iptRules:     make([]iptrule, 0),
-		Connections:  newConnTable(logger),
+		Connections:  newConnTable(),
 		shutdown:     make(chan struct{}),
 		publicAddrs:  nonLoopbackAddrs,
 		iface:        iface,
@@ -141,7 +144,7 @@ func (p *Processor) resetIPTables() (err error) {
 	for _, rule := range p.iptRules {
 		err = rule.Delete(p.ipt)
 		if err != nil {
-			p.log.Errorf("[freki   ] error deleting: %+v", rule)
+			logger.Errorf("[freki   ] error deleting: %+v", rule)
 		}
 	}
 	return
@@ -151,7 +154,7 @@ func (p *Processor) Init() (err error) {
 	for _, rule := range p.rules {
 		if rule.ruleType == ProxyTCP {
 			if rule.targetURL.Scheme == "docker" {
-				p.log.Debugf("[freki   ] Creating Docker client with version: %v", client.DefaultVersion)
+				logger.Debugf("[freki   ] Creating Docker client with version: %v", client.DefaultVersion)
 				var cli *client.Client
 				cli, err = client.NewEnvClient()
 				if err != nil {
@@ -170,7 +173,7 @@ func (p *Processor) Init() (err error) {
 					if name == rule.host {
 						// TODO: find correct network
 						addr := container.NetworkSettings.Networks["bridge"].IPAddress
-						p.log.Debugf("[freki   ] mapping docker://%s:%d to tcp://%s:%d", rule.host, rule.port, addr, rule.port)
+						logger.Debugf("[freki   ] mapping docker://%s:%d to tcp://%s:%d", rule.host, rule.port, addr, rule.port)
 						rule.targetURL.Host = fmt.Sprintf("tcp://%s:%d", addr, rule.port)
 						rule.host = addr
 						found = true
@@ -203,7 +206,7 @@ func (p *Processor) Init() (err error) {
 
 	for _, chain := range chains {
 		filters, _ := p.ipt.List(table, chain)
-		p.log.Debugf("[freki   ] %s %s %+v", table, chain, filters)
+		logger.Debugf("[freki   ] %s %s %+v", table, chain, filters)
 	}
 
 	// TODO: set sane defaults
@@ -215,10 +218,10 @@ func (p *Processor) Init() (err error) {
 
 	for _, server := range p.servers {
 		go func(s Server) {
-			p.log.Infof("[freki   ] starting %s on %d", s.Type(), s.Port())
+			logger.Infof("[freki   ] starting %s on %d", s.Type(), s.Port())
 			err := s.Start(p)
 			if err != nil {
-				p.log.Errorf("[freki   ] %v", err)
+				logger.Errorf("[freki   ] %v", err)
 			}
 		}(server)
 	}
@@ -240,7 +243,7 @@ func (p *Processor) Shutdown() (err error) {
 }
 
 func (p *Processor) cleanup() (err error) {
-	p.log.Debug("[freki   ] Processor:cleanup()")
+	logger.Debug("[freki   ] Processor:cleanup()")
 
 	p.resetIPTables()
 
@@ -250,7 +253,7 @@ func (p *Processor) cleanup() (err error) {
 
 	for _, chain := range chains {
 		filters, _ := p.ipt.List(table, chain)
-		p.log.Debugf("[freki   ] %s %s %+v", table, chain, filters)
+		logger.Debugf("[freki   ] %s %s %+v", table, chain, filters)
 	}
 
 	if p.iface != nil {
@@ -261,7 +264,7 @@ func (p *Processor) cleanup() (err error) {
 	for _, server := range p.servers {
 		err = server.Shutdown()
 		if err != nil {
-			p.log.Errorf("[freki   ] %v", err)
+			logger.Errorf("[freki   ] %v", err)
 			err = nil
 		}
 	}
@@ -270,7 +273,7 @@ func (p *Processor) cleanup() (err error) {
 }
 
 func (p *Processor) Start() (err error) {
-	p.log.Infof("[freki   ] starting freki on %v", p.publicAddrs)
+	logger.Infof("[freki   ] starting freki on %v", p.publicAddrs)
 
 	go func() {
 		ticker := time.NewTicker(time.Second * 5)
@@ -289,8 +292,8 @@ func (p *Processor) Start() (err error) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				p.log.Errorf("[freki   ] panic: %+v", r)
-				p.log.Errorf("[freki   ] stacktrace:\n%v", string(debug.Stack()))
+				logger.Errorf("[freki   ] panic: %+v", r)
+				logger.Errorf("[freki   ] stacktrace:\n%v", string(debug.Stack()))
 				p.shutdown <- struct{}{}
 			}
 		}()
@@ -351,7 +354,7 @@ func (p *Processor) mangle(
 		case PassThrough:
 			goto accept
 		default:
-			p.log.Errorf("[freki   ] rule not implmented: %+v", md.Rule)
+			logger.Errorf("[freki   ] rule not implmented: %+v", md.Rule)
 		}
 	} else {
 		// packets to honeypots
@@ -402,7 +405,7 @@ func (p *Processor) mangle(
 		case PassThrough:
 			goto accept
 		default:
-			p.log.Errorf("[freki   ] rule not implmented: %+v", md.Rule)
+			logger.Errorf("[freki   ] rule not implmented: %+v", md.Rule)
 		}
 	}
 
@@ -479,7 +482,7 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 	err = parser.DecodeLayers(packet.Data(), &foundLayerTypes)
 
 	if err != nil {
-		p.log.Errorf("[freki   ] %v %v", err, foundLayerTypes)
+		logger.Errorf("[freki   ] %v %v", err, foundLayerTypes)
 		goto accept
 	}
 
@@ -491,11 +494,11 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 				var rule *Rule
 				srcIP := ip.NetworkFlow().Src()
 				srcPort := tcp.TransportFlow().Src()
-				p.log.Debugf("[freki   ] new connection %s:%s->%d", srcIP.String(), srcPort.String(), tcp.DstPort)
+				logger.Debugf("[freki   ] new connection %s:%s->%d", srcIP.String(), srcPort.String(), tcp.DstPort)
 				rule, err = p.applyRules(packet)
 
 				if err != nil {
-					p.log.Errorf("[freki   ] %v", err)
+					logger.Errorf("[freki   ] %v", err)
 					goto accept
 				}
 
@@ -540,7 +543,7 @@ func (p *Processor) applyRules(packet gopacket.Packet) (*Rule, error) {
 	return nil, nil
 }
 
-func getNonLoopbackIPs(ifaceName string, logger Logger) ([]net.IP, error) {
+func getNonLoopbackIPs(ifaceName string) ([]net.IP, error) {
 	nonLoopback := []net.IP{}
 
 	ifs, err := pcap.FindAllDevs()
@@ -584,8 +587,7 @@ func pcapBPFToXNetBPF(pcapbpf []pcap.BPFInstruction) *bpf.VM {
 
 	if err != nil {
 		// TODO: return error
-		println(err)
-		// p.log.Error(err)
+		logger.Error(err)
 	}
 
 	return vm

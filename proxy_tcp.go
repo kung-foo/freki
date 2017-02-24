@@ -12,7 +12,6 @@ import (
 type TCPProxy struct {
 	port      uint
 	processor *Processor
-	log       Logger
 	listener  net.Listener
 }
 
@@ -32,7 +31,6 @@ func (p *TCPProxy) Type() string {
 
 func (p *TCPProxy) Start(processor *Processor) error {
 	p.processor = processor
-	p.log = p.processor.log
 
 	var err error
 	// TODO: can I be more specific with the bind addr?
@@ -46,7 +44,7 @@ func (p *TCPProxy) Start(processor *Processor) error {
 		conn, err := p.listener.Accept()
 
 		if err != nil {
-			p.log.Error(errors.Wrap(err, p.Type()))
+			logger.Error(errors.Wrap(err, p.Type()))
 			continue
 		}
 
@@ -59,37 +57,37 @@ func (p *TCPProxy) handleConnection(conn net.Conn) {
 	ck := NewConnKeyByString(host, port)
 	md := p.processor.Connections.GetByFlow(ck)
 	if md == nil {
-		p.log.Warnf("[prxy.tcp] untracked connection: %s", conn.RemoteAddr().String())
+		logger.Warnf("[prxy.tcp] untracked connection: %s", conn.RemoteAddr().String())
 		return
 	}
 
 	target := md.Rule.targetURL
 
 	if target.Scheme != "tcp" && target.Scheme != "docker" {
-		p.log.Error(fmt.Errorf("unsuppported scheme: %s", target.Scheme))
+		logger.Error(fmt.Errorf("unsuppported scheme: %s", target.Scheme))
 		return
 	}
 
-	p.log.Infof("[prxy.tcp] %s -> %s to %s", host, md.TargetPort, target.String())
+	logger.Infof("[prxy.tcp] %s -> %s to %s", host, md.TargetPort, target.String())
 
 	proxyConn, err := net.DialTimeout("tcp", target.Host, time.Second*5)
 
 	if err != nil {
-		p.log.Error(errors.Wrap(err, p.Type()))
+		logger.Error(errors.Wrap(err, p.Type()))
 		return
 	}
 
 	go func() {
 		_, err := io.Copy(proxyConn, conn)
 		if err != nil {
-			p.log.Error(errors.Wrap(err, p.Type()))
+			logger.Error(errors.Wrap(err, p.Type()))
 		}
 	}()
 
 	go func() {
 		_, err := io.Copy(conn, proxyConn)
 		if err != nil {
-			p.log.Error(errors.Wrap(err, p.Type()))
+			logger.Error(errors.Wrap(err, p.Type()))
 		}
 	}()
 }

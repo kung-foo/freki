@@ -11,7 +11,6 @@ import (
 type UserConnServer struct {
 	port      uint
 	processor *Processor
-	log       Logger
 	listener  net.Listener
 }
 
@@ -31,7 +30,6 @@ func (h *UserConnServer) Type() string {
 
 func (h *UserConnServer) Start(processor *Processor) error {
 	h.processor = processor
-	h.log = h.processor.log
 
 	var err error
 	// TODO: can I be more specific with the bind addr?
@@ -44,7 +42,7 @@ func (h *UserConnServer) Start(processor *Processor) error {
 	for {
 		conn, err := h.listener.Accept()
 		if err != nil {
-			h.log.Errorf("[user.tcp] %v", err)
+			logger.Errorf("[user.tcp] %v", err)
 			continue
 		}
 
@@ -52,7 +50,7 @@ func (h *UserConnServer) Start(processor *Processor) error {
 		md := h.processor.Connections.GetByFlow(ck)
 
 		if md == nil {
-			h.log.Warnf("[user.tcp] untracked connection: %s", conn.RemoteAddr().String())
+			logger.Warnf("[user.tcp] untracked connection: %s", conn.RemoteAddr().String())
 			conn.Close()
 			continue
 		}
@@ -64,18 +62,18 @@ func (h *UserConnServer) Start(processor *Processor) error {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						h.log.Errorf("[user.tcp] panic: %+v", r)
-						h.log.Errorf("[user.tcp] stacktrace:\n%v", string(debug.Stack()))
+						logger.Errorf("[user.tcp] panic: %+v", r)
+						logger.Errorf("[user.tcp] stacktrace:\n%v", string(debug.Stack()))
 						conn.Close()
 					}
 				}()
 				err := hfunc(conn, md)
 				if err != nil {
-					h.log.Error(errors.Wrap(err, h.Type()))
+					logger.Error(errors.Wrap(err, h.Type()))
 				}
 			}()
 		} else {
-			h.log.Errorf("[user.tcp] %v", fmt.Errorf("no handler found for %s", md.Rule.Target))
+			logger.Errorf("[user.tcp] %v", fmt.Errorf("no handler found for %s", md.Rule.Target))
 			conn.Close()
 			continue
 		}

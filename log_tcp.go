@@ -15,7 +15,6 @@ type TCPLogger struct {
 	port      uint
 	readSize  uint
 	processor *Processor
-	log       Logger
 	listener  net.Listener
 }
 
@@ -36,7 +35,6 @@ func (h *TCPLogger) Type() string {
 
 func (h *TCPLogger) Start(p *Processor) error {
 	h.processor = p
-	h.log = h.processor.log
 
 	var err error
 	// TODO: can I be more specific with the bind addr?
@@ -50,7 +48,7 @@ func (h *TCPLogger) Start(p *Processor) error {
 		conn, err := h.listener.Accept()
 
 		if err != nil {
-			h.log.Error(errors.Wrap(err, h.Type()))
+			logger.Error(errors.Wrap(err, h.Type()))
 			continue
 		}
 
@@ -58,7 +56,7 @@ func (h *TCPLogger) Start(p *Processor) error {
 			defer func() {
 				err := conn.Close()
 				if err != nil {
-					h.log.Error(errors.Wrap(err, h.Type()))
+					logger.Error(errors.Wrap(err, h.Type()))
 				}
 			}()
 
@@ -67,15 +65,15 @@ func (h *TCPLogger) Start(p *Processor) error {
 			ck := NewConnKeyByString(host, port)
 			md := h.processor.Connections.GetByFlow(ck)
 			if md == nil {
-				p.log.Warnf("[log.tcp ] untracked connection: %s", conn.RemoteAddr().String())
+				logger.Warnf("[log.tcp ] untracked connection: %s", conn.RemoteAddr().String())
 				return
 			}
 			buffer := make([]byte, h.readSize)
 			n, _ := conn.Read(buffer)
 			if n > 0 {
-				p.log.Infof("[log.tcp ] %s -> %s\n%s", host, md.TargetPort, hex.Dump(buffer[0:n]))
+				logger.Infof("[log.tcp ] %s -> %s\n%s", host, md.TargetPort, hex.Dump(buffer[0:n]))
 			} else {
-				p.log.Infof("[log.tcp ] %s -> %s", host, md.TargetPort)
+				logger.Infof("[log.tcp ] %s -> %s", host, md.TargetPort)
 			}
 		}(conn)
 	}

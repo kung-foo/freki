@@ -1,3 +1,7 @@
+## 1.1.1 (unreleased)
+
+* cleanup logging
+
 ## 1.1.0 (14 February 2017) 💗
 
 * New custom TCP connection handers

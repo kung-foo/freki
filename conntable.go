@@ -46,13 +46,11 @@ type Metadata struct {
 type connTable struct {
 	table map[ckey]*Metadata
 	mtx   sync.RWMutex
-	log   Logger
 }
 
-func newConnTable(logger Logger) *connTable {
+func newConnTable() *connTable {
 	ct := &connTable{
 		table: make(map[ckey]*Metadata, 1024),
-		log:   logger,
 	}
 	return ct
 }
@@ -65,7 +63,7 @@ func (t *connTable) Register(ck ckey, matchedRule *Rule, srcIP, srcPort string, 
 	if _, ok := t.table[ck]; ok {
 		// TODO: wut?
 	} else {
-		t.log.Debugf("[contable] registering %s:%s->%d", srcIP, srcPort, targetPort)
+		logger.Debugf("[contable] registering %s:%s->%d", srcIP, srcPort, targetPort)
 
 		t.table[ck] = &Metadata{
 			Added:      time.Now(),

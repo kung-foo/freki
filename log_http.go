@@ -12,7 +12,6 @@ type HTTPLogger struct {
 	port uint
 	//maxReadSize uint
 	processor *Processor
-	log       Logger
 }
 
 func NewHTTPLogger(port uint) *HTTPLogger {
@@ -26,18 +25,17 @@ func (h *HTTPLogger) Port() uint {
 }
 
 func (h *HTTPLogger) Type() string {
-	return "log.http"
+	return "logger.http"
 }
 
 func (h *HTTPLogger) Start(p *Processor) error {
 	h.processor = p
-	h.log = h.processor.log
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		host, port, _ := net.SplitHostPort(r.RemoteAddr)
 		ck := NewConnKeyByString(host, port)
 		md := h.processor.Connections.GetByFlow(ck)
-		h.log.Infof("[log.http] %s -> %s\n%s %s\n%v",
+		logger.Infof("[logger.http] %s -> %s\n%s %s\n%v",
 			host,
 			md.TargetPort.String(),
 			r.Method, r.URL,
@@ -47,7 +45,7 @@ func (h *HTTPLogger) Start(p *Processor) error {
 			defer r.Body.Close()
 			body, _ := ioutil.ReadAll(r.Body)
 			if len(body) > 0 {
-				h.log.Infof("[log.http] %s -> %s\n%s",
+				logger.Infof("[logger.http] %s -> %s\n%s",
 					host,
 					md.TargetPort.String(),
 					hex.Dump(body),

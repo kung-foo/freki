@@ -59,6 +59,7 @@ func mainEx(argv []string) {
 	onErrorExit(err)
 
 	logger := log.New()
+	freki.SetDefaultLogger(logger)
 
 	if args["-v"].(int) > 0 {
 		logger.Level = log.DebugLevel
@@ -74,7 +75,7 @@ func mainEx(argv []string) {
 	rules, err := freki.ReadRulesFromFile(rulesFile)
 	onErrorExit(err)
 
-	processor, err := freki.New(args["--interface"].(string), rules, logger)
+	processor, err := freki.New(args["--interface"].(string), rules, nil)
 	onErrorExit(err)
 
 	// TODO: this all needs to move _inside_ freki
