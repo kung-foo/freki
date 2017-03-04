@@ -89,7 +89,7 @@ Contributors
 ------------
 
 * [Jonathan Camp](https://keybase.io/kung_foo)
-* [glasos](https://keybase.io/glaslos)
+* [Lukas Rist](https://keybase.io/glaslos)
 
 License
 -------
