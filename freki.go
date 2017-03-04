@@ -89,7 +89,7 @@ func New(ifaceName string, rules []*Rule, log Logger) (*Processor, error) {
 	}
 
 	// TODO: in 2.0, remove logger parameter
-	if logger != nil {
+	if log != nil {
 		logger = log
 	}
 
