@@ -59,7 +59,6 @@ func mainEx(argv []string) {
 	onErrorExit(err)
 
 	logger := log.New()
-	freki.SetDefaultLogger(logger)
 
 	if args["-v"].(int) > 0 {
 		logger.Level = log.DebugLevel
@@ -68,6 +67,8 @@ func mainEx(argv []string) {
 	if args["-v"].(int) > 1 {
 		// TODO: trace level
 	}
+
+	freki.SetDefaultLogger(logger)
 
 	rulesFile, err := os.Open(args["--rules"].(string))
 	onErrorExit(err)

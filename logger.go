@@ -4,6 +4,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"os"
+	"reflect"
 )
 
 var logger Logger
@@ -18,6 +19,7 @@ func GetDefaultLogger() Logger {
 
 func SetDefaultLogger(log Logger) {
 	logger = log
+	logger.Debugf("[freki   ] default logger set to %s", reflect.TypeOf(log))
 }
 
 type Logger interface {
