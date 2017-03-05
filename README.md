@@ -36,7 +36,7 @@ Options:
 Build
 -----
 
-requires: go 1.7+, libnetfilter-queue-dev, libpcap-dev, iptables-dev
+requires: go 1.7+, libnetfilter-queue-dev>=1.0.0, libpcap-dev, iptables-dev
 
 
 Rules Specification
