@@ -1,0 +1,9 @@
+version: 1
+rules:
+  - match: tcp port 80 or tcp port 8080
+    type: log_http
+  - match: tcp port 1337
+    type: proxy
+    target: tcp://port.party:666
+  - match:
+    type: passthrough

@@ -1,0 +1,18 @@
+version: '3.1'
+
+services:
+  freki:
+    build: .
+    stop_signal: SIGINT
+    cap_add:
+      - NET_ADMIN
+    command: system_test/run_freki.sh
+    volumes:
+      - ../:/go/src/github.com/kung-foo/freki:ro
+  test:
+    build: .
+    command: system_test/run_test.sh
+    volumes:
+      - ../:/go/src/github.com/kung-foo/freki:ro
+    links:
+      - freki
