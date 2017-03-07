@@ -19,3 +19,7 @@ before_install:
   - go get golang.org/x/net/bpf
   - go get golang.org/x/net/context
   - go get golang.org/x/net/proxy
+script:
+  - make
+  - docker-compose -f system_test/docker-compose.yml build
+  - docker-compose -f system_test/docker-compose.yml run test
