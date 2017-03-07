@@ -1,6 +1,21 @@
 language: go
 go:
   - 1.8.x
+sudo: required
+services:
+  - docker
+env:
+  DOCKER_COMPOSE_VERSION: 1.11.2
 branches:
   except:
     - master
+before_install:
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq libnetfilter-queue-dev libpcap-dev iptables-dev
+  - sudo rm /usr/local/bin/docker-compose
+  - curl -L https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-`uname -s`-`uname -m` > docker-compose
+  - chmod +x docker-compose
+  - sudo mv docker-compose /usr/local/bin
+  - go get golang.org/x/net/bpf
+  - go get golang.org/x/net/context
+  - go get golang.org/x/net/proxy
