@@ -1,6 +1,8 @@
 freki
 =====
 
+[![Travis](https://img.shields.io/travis/kung-foo/freki.svg?style=flat-square)](https://travis-ci.org/kung-foo/freki)
+
 The ravenous and greedy one.
 
 **Freki** is a tool for manipulating packets in userspace. Using iptable's raw table, packets are routed down into userspace where **freki** takes over. A set of rules is applied allowing for a large amount of flexibility. For example, you can forward all TCP ports to an HTTP honeypot and log the requests. Or you can proxy TCP port 22 into a docker container running an ssh honeypot.
