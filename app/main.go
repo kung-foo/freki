@@ -1,7 +1,7 @@
 package main
 
 import (
-	"io"
+	"bufio"
 	"net"
 	"os"
 	"os/signal"
@@ -89,7 +89,15 @@ func mainEx(argv []string) {
 		defer conn.Close()
 		host, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
 		logger.Infof("[main    ] echo request %s -> %d", host, uint(md.TargetPort))
-		io.Copy(conn, conn)
+
+		b := bufio.NewReader(conn)
+		for {
+			line, e := b.ReadBytes('\n')
+			if e != nil {
+				break
+			}
+			conn.Write(line)
+		}
 		return nil
 	})
 

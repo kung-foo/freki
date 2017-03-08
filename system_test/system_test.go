@@ -1,12 +1,15 @@
 package system_test
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 )
@@ -50,6 +53,34 @@ func TestEndToEnd(t *testing.T) {
 			So(j["Port"], ShouldEqual, 666)
 
 			resp.Body.Close()
+		})
+
+		Convey("Port 7000 to 8000 should echo", func() {
+			f := func(p int) {
+				conn, err := net.DialTimeout("tcp", fmt.Sprintf("freki:%d", p), time.Second)
+
+				So(err, ShouldBeNil)
+				So(conn, ShouldNotBeNil)
+
+				defer conn.Close()
+
+				msg := []byte(fmt.Sprintf("hello on %d\n", p))
+
+				n, err := conn.Write(msg)
+
+				So(err, ShouldBeNil)
+				So(n, ShouldEqual, len(msg))
+
+				b := bufio.NewReader(conn)
+
+				line, err := b.ReadBytes('\n')
+
+				So(err, ShouldBeNil)
+				So(bytes.Equal(line, msg), ShouldBeTrue)
+			}
+
+			f(7000)
+			f(7999)
 		})
 	})
 }

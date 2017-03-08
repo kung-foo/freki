@@ -41,3 +41,8 @@ build-docker-debian:
 
 build-docker-debian-sh:
 	docker run --rm -it $(DOCKER_OPTS) $(DEBIAN_TAG) bash
+
+system-test:
+	docker-compose -f system_test/docker-compose.yml build
+	docker-compose -f system_test/docker-compose.yml run test
+	docker-compose -f system_test/docker-compose.yml rm -f -v freki test
