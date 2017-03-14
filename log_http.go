@@ -37,7 +37,7 @@ func (h *HTTPLogger) Start(p *Processor) error {
 		md := h.processor.Connections.GetByFlow(ck)
 		logger.Infof("[log.http] %s -> %s\n%s %s\n%v",
 			host,
-			md.TargetPort.String(),
+			md.TargetPort,
 			r.Method, r.URL,
 			r.Header)
 
@@ -47,7 +47,7 @@ func (h *HTTPLogger) Start(p *Processor) error {
 			if len(body) > 0 {
 				logger.Infof("[log.http] %s -> %s\n%s",
 					host,
-					md.TargetPort.String(),
+					md.TargetPort,
 					hex.Dump(body),
 				)
 			}
