@@ -107,20 +107,12 @@ func New(ifaceName string, rules []*Rule, log Logger) (*Processor, error) {
 	// TODO: customize protocols
 
 	for _, chain := range chains {
-		r1 := iptrule{
+		r := iptrule{
 			table:    table,
 			chain:    chain,
 			rulespec: genRuleSpec(chain, ifaceName, "tcp", "0"),
 		}
-		processor.iptRules = append(processor.iptRules, r1)
-
-		// FIXME: we could also drop `-p` and get TCP, UDP and ICMP
-		r2 := iptrule{
-			table:    table,
-			chain:    chain,
-			rulespec: genRuleSpec(chain, ifaceName, "udp", "0"),
-		}
-		processor.iptRules = append(processor.iptRules, r2)
+		processor.iptRules = append(processor.iptRules, r)
 	}
 
 	return processor, nil
@@ -343,22 +335,14 @@ func (p *Processor) mangle(
 	packet gopacket.Packet,
 	ip *layers.IPv4,
 	tcp *layers.TCP,
-	udp *layers.UDP,
 	body *gopacket.Payload) error {
 
 	var err error
 	var buffer gopacket.SerializeBuffer
-	var dstPort gopacket.Endpoint
-	switch {
-	case tcp != nil:
-		dstPort = tcp.TransportFlow().Dst()
-	case udp != nil:
-		dstPort = udp.TransportFlow().Dst()
-	}
 
 	if p.isIPNonLoopback(&ip.SrcIP) {
 		// packets back to client
-		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Dst(), dstPort)
+		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Dst(), tcp.TransportFlow().Dst())
 		md := p.Connections.GetByFlow(ck)
 		if md == nil {
 			// not tracking
@@ -367,12 +351,7 @@ func (p *Processor) mangle(
 
 		switch md.Rule.ruleType {
 		case Rewrite, LogTCP, LogHTTP, ProxyTCP, UserConnHandler:
-			switch {
-			case tcp != nil:
-				tcp.SrcPort = layers.TCPPort(md.TargetPort)
-			case udp != nil:
-				udp.SrcPort = layers.UDPPort(md.TargetPort)
-			}
+			tcp.SrcPort = layers.TCPPort(md.TargetPort)
 			goto modified
 		case Drop:
 			goto drop
@@ -383,7 +362,7 @@ func (p *Processor) mangle(
 		}
 	} else {
 		// packets to honeypots
-		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), dstPort)
+		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
 		md := p.Connections.GetByFlow(ck)
 		if md == nil {
 			// not tracking
@@ -395,36 +374,21 @@ func (p *Processor) mangle(
 
 		switch md.Rule.ruleType {
 		case Rewrite:
-			switch {
-			case tcp != nil:
-				tcp.DstPort = layers.TCPPort(md.Rule.port)
-			case udp != nil:
-				udp.DstPort = layers.UDPPort(md.Rule.port)
-			}
+			tcp.DstPort = layers.TCPPort(md.Rule.port)
 			goto modified
 		case LogTCP:
 			// TODO: optimize?
 			if s, ok = p.servers["log.tcp"]; !ok {
 				return fmt.Errorf("No TCPLogger installed")
 			}
-			switch {
-			case tcp != nil:
-				tcp.DstPort = layers.TCPPort(s.Port())
-			case udp != nil:
-				udp.DstPort = layers.UDPPort(s.Port())
-			}
+			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
 		case LogHTTP:
 			// TODO: optimize?
 			if s, ok = p.servers["log.http"]; !ok {
 				return fmt.Errorf("No HTTPLogger installed")
 			}
-			switch {
-			case tcp != nil:
-				tcp.DstPort = layers.TCPPort(s.Port())
-			case udp != nil:
-				udp.DstPort = layers.UDPPort(s.Port())
-			}
+			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
 
 		case ProxyTCP:
@@ -432,23 +396,13 @@ func (p *Processor) mangle(
 			if s, ok = p.servers["proxy.tcp"]; !ok {
 				return fmt.Errorf("No TCPProxy installed")
 			}
-			switch {
-			case tcp != nil:
-				tcp.DstPort = layers.TCPPort(s.Port())
-			case udp != nil:
-				udp.DstPort = layers.UDPPort(s.Port())
-			}
+			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
 		case UserConnHandler:
 			if s, ok = p.servers["user.tcp"]; !ok {
 				return fmt.Errorf("No ConnHandler installed")
 			}
-			switch {
-			case tcp != nil:
-				tcp.DstPort = layers.TCPPort(s.Port())
-			case udp != nil:
-				udp.DstPort = layers.UDPPort(s.Port())
-			}
+			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
 		case Drop:
 			goto drop
@@ -463,28 +417,14 @@ func (p *Processor) mangle(
 	goto accept
 
 modified:
-	switch {
-	case tcp != nil:
-		tcp.SetNetworkLayerForChecksum(ip)
-	case udp != nil:
-		udp.SetNetworkLayerForChecksum(ip)
-	}
+	tcp.SetNetworkLayerForChecksum(ip)
 	buffer = gopacket.NewSerializeBuffer()
 
-	switch {
-	case tcp != nil:
-		err = gopacket.SerializeLayers(
-			buffer,
-			gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
-			ip, tcp, body,
-		)
-	case udp != nil:
-		err = gopacket.SerializeLayers(
-			buffer,
-			gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
-			ip, udp, body,
-		)
-	}
+	err = gopacket.SerializeLayers(
+		buffer,
+		gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
+		ip, tcp, body,
+	)
 	if err != nil {
 		// TODO: should return a verdict?
 		return err
@@ -551,52 +491,32 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 	}
 
 	for _, layer := range foundLayerTypes {
-		var rule *Rule
-		srcIP := ip.NetworkFlow().Src()
 		switch layer {
 		case layers.LayerTypeTCP:
 			// TODO: validate logic
 			if tcp.SYN && !tcp.ACK {
+				var rule *Rule
+				srcIP := ip.NetworkFlow().Src()
 				srcPort := tcp.TransportFlow().Src()
-				logger.Debugf("[freki   ] new TCP connection %s:%s->%d", srcIP.String(), srcPort.String(), tcp.DstPort)
+				logger.Debugf("[freki   ] new connection %s:%s->%d", srcIP.String(), srcPort.String(), tcp.DstPort)
 				rule, err = p.applyRules(packet)
+
 				if err != nil {
 					logger.Errorf("[freki   ] %v", err)
 					goto accept
 				}
+
 				if rule == nil {
 					// TODO: is this the correct default?
 					goto accept
 				}
+
 				// FYI: when i don't respond to a SYN, then a duplicate SYN is sent
 				ck := NewConnKeyByEndpoints(srcIP, srcPort)
-				p.Connections.Register(ck, rule, srcIP.String(), srcPort.String(), uint16(tcp.DstPort))
-				err = p.mangle(rawPacket, packet, &ip, &tcp, nil, &body)
-				if err != nil {
-					logger.Errorf("[freki   ] %v", err)
-					goto accept
-				}
-				return
+				p.Connections.Register(ck, rule, srcIP.String(), srcPort.String(), tcp.DstPort)
 			}
-		case layers.LayerTypeUDP:
-			srcPort := udp.TransportFlow().Src()
-			logger.Debugf("[freki   ] new UDP connection %s:%s->%d", srcIP.String(), srcPort.String(), udp.DstPort)
-			rule, err = p.applyRules(packet)
-			if err != nil {
-				logger.Errorf("[freki   ] %v", err)
-				goto accept
-			}
-			if rule == nil {
-				// TODO: is this the correct default?
-				goto accept
-			}
-			ck := NewConnKeyByEndpoints(srcIP, srcPort)
-			p.Connections.Register(ck, rule, srcIP.String(), srcPort.String(), uint16(udp.DstPort))
-			err = p.mangle(rawPacket, packet, &ip, nil, &udp, &body)
-			if err != nil {
-				logger.Errorf("[freki   ] %v", err)
-				goto accept
-			}
+
+			err = p.mangle(rawPacket, packet, &ip, &tcp, &body)
 			return
 		}
 	}
