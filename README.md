@@ -1,7 +1,7 @@
 freki
 =====
 
-[![Travis](https://img.shields.io/travis/kung-foo/freki.svg?style=flat-square)](https://travis-ci.org/kung-foo/freki)
+[![Travis](https://img.shields.io/travis/kung-foo/freki/master.svg?style=flat-square)](https://travis-ci.org/kung-foo/freki)
 
 The ravenous and greedy one.
 
