@@ -317,6 +317,10 @@ func (p *Processor) loop() (err error) {
 	}
 }
 
+func (p *Processor) GetPublicAddresses() []net.IP {
+	return p.publicAddrs
+}
+
 func (p *Processor) isIPNonLoopback(ip *net.IP) bool {
 	for _, addr := range p.publicAddrs {
 		if ip.Equal(addr) {
