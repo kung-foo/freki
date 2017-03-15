@@ -92,6 +92,7 @@ Contributors
 
 * [Jonathan Camp](https://keybase.io/kung_foo)
 * [Lukas Rist](https://keybase.io/glaslos)
+* Mohammad Bilal
 
 License
 -------
