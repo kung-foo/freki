@@ -37,21 +37,25 @@ func NewConnKeyFromNetConn(conn net.Conn) ckey {
 }
 
 type Metadata struct {
-	Added      time.Time
-	Rule       *Rule
-	TargetPort layers.TCPPort
+	Added       time.Time
+	LastUpdated time.Time
+	Rule        *Rule
+	TargetPort  layers.TCPPort
 	//TargetIP   net.IP
 }
 
 type connTable struct {
-	table map[ckey]*Metadata
-	mtx   sync.RWMutex
+	table     map[ckey]*Metadata
+	mtx       sync.RWMutex
+	softLimit int // softLimit controls when the cleanup routine is invoked
 }
 
-func newConnTable() *connTable {
+func newConnTable(softLimit int) *connTable {
 	ct := &connTable{
-		table: make(map[ckey]*Metadata, 1024),
+		table:     make(map[ckey]*Metadata, softLimit),
+		softLimit: softLimit,
 	}
+
 	return ct
 }
 
@@ -63,28 +67,58 @@ func (t *connTable) Register(ck ckey, matchedRule *Rule, srcIP, srcPort string, 
 	if _, ok := t.table[ck]; ok {
 		// TODO: wut?
 	} else {
-		logger.Debugf("[contable] registering %s:%s->%d", srcIP, srcPort, targetPort)
 
+		logger.Debugf("[contable] registering %s:%s->%d", srcIP, srcPort, targetPort)
+		now := time.Now()
 		t.table[ck] = &Metadata{
-			Added:      time.Now(),
-			Rule:       matchedRule,
-			TargetPort: targetPort,
+			Added:       now,
+			LastUpdated: now,
+			Rule:        matchedRule,
+			TargetPort:  targetPort,
 			//TargetIP:   targetIP,
+		}
+
+	}
+}
+
+func (t *connTable) FlushOlderOnes() {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+
+	now := time.Now()
+
+	minutes := 30
+
+	for minutes >= 0 {
+
+		duration := time.Duration(minutes) * time.Minute
+		threshold := now.Add(-1 * duration)
+
+		for ck, md := range t.table {
+			if md.LastUpdated.Before(threshold) {
+				delete(t.table, ck)
+			}
+		}
+
+		if len(t.table) < t.softLimit {
+			break
+		} else {
+			minutes -= 10
 		}
 	}
 }
 
-func (t *connTable) FlushOlderThan(s time.Duration) {
-	t.mtx.Lock()
-	defer t.mtx.Unlock()
+func (t *connTable) updatePacketTime(ck ckey) {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 
-	threshold := time.Now().Add(-1 * s)
-
-	for ck, md := range t.table {
-		if md.Added.Before(threshold) {
-			delete(t.table, ck)
-		}
+	if _, ok := t.table[ck]; ok {
+		t.table[ck].LastUpdated = time.Now()
+	} else {
+		// TODO
+		// What?
 	}
+
 }
 
 // TODO: what happens when I return a *Metadata and then FlushOlderThan()

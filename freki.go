@@ -96,7 +96,7 @@ func New(ifaceName string, rules []*Rule, log Logger) (*Processor, error) {
 	processor := &Processor{
 		rules:        rules,
 		iptRules:     make([]iptrule, 0),
-		Connections:  newConnTable(),
+		Connections:  newConnTable(1024),
 		shutdown:     make(chan struct{}),
 		publicAddrs:  nonLoopbackAddrs,
 		iface:        iface,
@@ -275,12 +275,16 @@ func (p *Processor) cleanup() (err error) {
 func (p *Processor) Start() (err error) {
 	logger.Infof("[freki   ] starting freki on %v", p.publicAddrs)
 
+	// TODO: either add shouldInvokeCleanup() bool function
+	// or move ticker onto connTable struct
 	go func() {
 		ticker := time.NewTicker(time.Second * 5)
 		for {
 			select {
 			case <-ticker.C:
-				p.Connections.FlushOlderThan(time.Second * 60)
+				if len(p.Connections.table) > p.Connections.softLimit {
+					p.Connections.FlushOlderOnes()
+				}
 			case <-p.shutdown:
 				ticker.Stop()
 				return
@@ -493,11 +497,13 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 	for _, layer := range foundLayerTypes {
 		switch layer {
 		case layers.LayerTypeTCP:
+			srcIP := ip.NetworkFlow().Src()
+			srcPort := tcp.TransportFlow().Src()
+			ck := NewConnKeyByEndpoints(srcIP, srcPort)
+
 			// TODO: validate logic
 			if tcp.SYN && !tcp.ACK {
 				var rule *Rule
-				srcIP := ip.NetworkFlow().Src()
-				srcPort := tcp.TransportFlow().Src()
 				logger.Debugf("[freki   ] new connection %s:%s->%d", srcIP.String(), srcPort.String(), tcp.DstPort)
 				rule, err = p.applyRules(packet)
 
@@ -512,8 +518,9 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 				}
 
 				// FYI: when i don't respond to a SYN, then a duplicate SYN is sent
-				ck := NewConnKeyByEndpoints(srcIP, srcPort)
 				p.Connections.Register(ck, rule, srcIP.String(), srcPort.String(), tcp.DstPort)
+			} else {
+				p.Connections.updatePacketTime(ck)
 			}
 
 			err = p.mangle(rawPacket, packet, &ip, &tcp, &body)
