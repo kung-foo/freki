@@ -34,7 +34,7 @@ extern void go_callback(int id, unsigned char* data, int len, int queue_id);
 static int nf_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *cb_data){
     uint32_t id = -1;
     struct nfqnl_msg_packet_hdr *ph = NULL;
-    unsigned char *buffer = NULL;
+    char *buffer = NULL;
     int ret = 0;
 
     // nfq_get_packet_hw
