@@ -42,6 +42,9 @@ build-docker-debian:
 build-docker-debian-sh:
 	docker run --rm -it $(DOCKER_OPTS) $(DEBIAN_TAG) bash
 
+RUN_DC := docker-compose -f system_test/docker-compose.yml
 system-test:
-	docker-compose -f system_test/docker-compose.yml up --build --abort-on-container-exit
-	docker-compose -f system_test/docker-compose.yml rm -f -v freki test
+	$(RUN_DC) up --build --abort-on-container-exit
+	$(RUN_DC) ps -q | xargs docker inspect -f '{{ .State.ExitCode }}' | grep -v 0 | wc -l | tr -d ' ' > /tmp/dc-exit-code.txt
+	$(RUN_DC) rm -f -v freki test
+	exit `cat /tmp/dc-exit-code.txt`

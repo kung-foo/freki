@@ -39,7 +39,7 @@ func NewConnKeyFromNetConn(conn net.Conn) ckey {
 type Metadata struct {
 	Added      time.Time
 	Rule       *Rule
-	TargetPort uint16
+	TargetPort layers.TCPPort
 	//TargetIP   net.IP
 }
 
@@ -56,7 +56,7 @@ func newConnTable() *connTable {
 }
 
 // TODO: fix srcIP string inconsistency
-func (t *connTable) Register(ck ckey, matchedRule *Rule, srcIP, srcPort string, targetPort uint16) {
+func (t *connTable) Register(ck ckey, matchedRule *Rule, srcIP, srcPort string, targetPort layers.TCPPort) {
 	t.mtx.Lock()
 	defer t.mtx.Unlock()
 
