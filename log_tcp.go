@@ -11,6 +11,7 @@ import (
 
 var readDeadline = time.Second * 5
 
+// TCPLogger struct
 type TCPLogger struct {
 	port      uint
 	readSize  uint
@@ -18,6 +19,7 @@ type TCPLogger struct {
 	listener  net.Listener
 }
 
+// NewTCPLogger creates an instace of the logger
 func NewTCPLogger(port uint, readSize uint) *TCPLogger {
 	return &TCPLogger{
 		port:     port,
@@ -25,14 +27,17 @@ func NewTCPLogger(port uint, readSize uint) *TCPLogger {
 	}
 }
 
+// Port of the logger
 func (h *TCPLogger) Port() uint {
 	return h.port
 }
 
+// Type of the logger
 func (h *TCPLogger) Type() string {
 	return "log.tcp"
 }
 
+// Start the TCP logger
 func (h *TCPLogger) Start(p *Processor) error {
 	h.processor = p
 
@@ -79,6 +84,7 @@ func (h *TCPLogger) Start(p *Processor) error {
 	}
 }
 
+// Shutdown the TCP logger
 func (h *TCPLogger) Shutdown() error {
 	if h.listener != nil {
 		return h.listener.Close()

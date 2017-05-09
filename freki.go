@@ -349,12 +349,21 @@ func (p *Processor) mangle(
 	var err error
 	var buffer gopacket.SerializeBuffer
 	var dstPort gopacket.Endpoint
-	switch {
-	case tcp != nil:
-		dstPort = tcp.TransportFlow().Dst()
-	case udp != nil:
-		dstPort = udp.TransportFlow().Dst()
+
+	var layer interface {
+		gopacket.SerializableLayer
+		SetNetworkLayerForChecksum(l gopacket.NetworkLayer) error
+		TransportFlow() gopacket.Flow
 	}
+	if tcp != nil {
+		layer = tcp
+	} else if udp != nil {
+		layer = udp
+	} else {
+		panic("Missing transport layer")
+	}
+
+	dstPort = layer.TransportFlow().Dst()
 
 	if p.isIPNonLoopback(&ip.SrcIP) {
 		// packets back to client
@@ -463,28 +472,15 @@ func (p *Processor) mangle(
 	goto accept
 
 modified:
-	switch {
-	case tcp != nil:
-		tcp.SetNetworkLayerForChecksum(ip)
-	case udp != nil:
-		udp.SetNetworkLayerForChecksum(ip)
-	}
+	layer.SetNetworkLayerForChecksum(ip)
+
 	buffer = gopacket.NewSerializeBuffer()
 
-	switch {
-	case tcp != nil:
-		err = gopacket.SerializeLayers(
-			buffer,
-			gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
-			ip, tcp, body,
-		)
-	case udp != nil:
-		err = gopacket.SerializeLayers(
-			buffer,
-			gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
-			ip, udp, body,
-		)
-	}
+	err = gopacket.SerializeLayers(
+		buffer,
+		gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true},
+		ip, layer, body,
+	)
 	if err != nil {
 		// TODO: should return a verdict?
 		return err
