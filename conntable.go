@@ -10,32 +10,37 @@ import (
 	"github.com/google/gopacket/layers"
 )
 
-type ckey [2]uint64
+// Ckey is a key representing a connection
+type Ckey [2]uint64
 
-func NewConnKeyByEndpoints(clientAddr gopacket.Endpoint, clientPort gopacket.Endpoint) ckey {
+// NewConnKeyByEndpoints returns a key from an endpoint pair
+func NewConnKeyByEndpoints(clientAddr gopacket.Endpoint, clientPort gopacket.Endpoint) Ckey {
 	if clientAddr.EndpointType() != layers.EndpointIPv4 {
 		panic("clientAddr endpoint must be of type layers.EndpointIPv4")
 	}
 
-	if clientPort.EndpointType() != layers.EndpointTCPPort {
-		panic("clientPort endpoint must be of type layers.EndpointTCPPort")
+	if clientPort.EndpointType() != layers.EndpointTCPPort && clientPort.EndpointType() != layers.EndpointUDPPort {
+		panic("clientPort endpoint must be of type layers.EndpointTCPPort or layers.EndpointUDPPort")
 	}
 
-	return ckey{clientAddr.FastHash(), clientPort.FastHash()}
+	return Ckey{clientAddr.FastHash(), clientPort.FastHash()}
 }
 
-func NewConnKeyByString(host, port string) ckey {
+// NewConnKeyByString returns a key from a connection pair as string
+func NewConnKeyByString(host, port string) Ckey {
 	clientAddr := layers.NewIPEndpoint(net.ParseIP(host).To4())
 	p, _ := strconv.Atoi(port)
 	clientPort := layers.NewTCPPortEndpoint(layers.TCPPort(p))
 	return NewConnKeyByEndpoints(clientAddr, clientPort)
 }
 
-func NewConnKeyFromNetConn(conn net.Conn) ckey {
+// NewConnKeyFromNetConn returns a key from a connection
+func NewConnKeyFromNetConn(conn net.Conn) Ckey {
 	host, port, _ := net.SplitHostPort(conn.RemoteAddr().String())
 	return NewConnKeyByString(host, port)
 }
 
+// Metadata in the connection table
 type Metadata struct {
 	Added      time.Time
 	Rule       *Rule
@@ -44,19 +49,19 @@ type Metadata struct {
 }
 
 type connTable struct {
-	table map[ckey]*Metadata
+	table map[Ckey]*Metadata
 	mtx   sync.RWMutex
 }
 
 func newConnTable() *connTable {
 	ct := &connTable{
-		table: make(map[ckey]*Metadata, 1024),
+		table: make(map[Ckey]*Metadata, 1024),
 	}
 	return ct
 }
 
 // TODO: fix srcIP string inconsistency
-func (t *connTable) Register(ck ckey, matchedRule *Rule, srcIP, srcPort string, targetPort uint16) {
+func (t *connTable) Register(ck Ckey, matchedRule *Rule, srcIP, srcPort string, targetPort uint16) {
 	t.mtx.Lock()
 	defer t.mtx.Unlock()
 
@@ -89,7 +94,7 @@ func (t *connTable) FlushOlderThan(s time.Duration) {
 
 // TODO: what happens when I return a *Metadata and then FlushOlderThan()
 // deletes it?
-func (t *connTable) GetByFlow(ck ckey) *Metadata {
+func (t *connTable) GetByFlow(ck Ckey) *Metadata {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
 	return t.table[ck]
