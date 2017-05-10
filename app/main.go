@@ -59,6 +59,7 @@ func mainEx(argv []string) {
 	onErrorExit(err)
 
 	logger := log.New()
+	logger.Formatter = &log.TextFormatter{ForceColors: true}
 
 	if args["-v"].(int) > 0 {
 		logger.Level = log.DebugLevel

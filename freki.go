@@ -27,6 +27,10 @@ const table = "raw"
 
 var chains = []string{"PREROUTING", "OUTPUT"}
 
+type Layer4Port struct {
+	uint16
+}
+
 func genRuleSpec(chain, iface, protocol, queuespec string) []string {
 	spec := "-p,%s,-j,NFQUEUE,--queue-num,%s"
 	if chain == "PREROUTING" {
@@ -96,7 +100,7 @@ func New(ifaceName string, rules []*Rule, log Logger) (*Processor, error) {
 	processor := &Processor{
 		rules:        rules,
 		iptRules:     make([]iptrule, 0),
-		Connections:  newConnTable(),
+		Connections:  newConnTable(0),
 		shutdown:     make(chan struct{}),
 		publicAddrs:  nonLoopbackAddrs,
 		iface:        iface,
@@ -284,11 +288,14 @@ func (p *Processor) Start() (err error) {
 	logger.Infof("[freki   ] starting freki on %v", p.publicAddrs)
 
 	go func() {
-		ticker := time.NewTicker(time.Second * 5)
+		ticker := time.NewTicker(time.Second * 1)
 		for {
 			select {
 			case <-ticker.C:
-				p.Connections.FlushOlderThan(time.Second * 60)
+				// p.Connections.dump()
+				if len(p.Connections.table) > p.Connections.softLimit {
+					p.Connections.FlushOlderOnes()
+				}
 			case <-p.shutdown:
 				ticker.Stop()
 				return
@@ -551,9 +558,10 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 		srcIP := ip.NetworkFlow().Src()
 		switch layer {
 		case layers.LayerTypeTCP:
+			srcPort := tcp.TransportFlow().Src()
+			ck := NewConnKeyByEndpoints(srcIP, srcPort)
 			// TODO: validate logic
 			if tcp.SYN && !tcp.ACK {
-				srcPort := tcp.TransportFlow().Src()
 				logger.Debugf("[freki   ] new TCP connection %s:%s->%d", srcIP.String(), srcPort.String(), tcp.DstPort)
 				rule, err = p.applyRules(packet)
 				if err != nil {
@@ -565,7 +573,6 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 					goto accept
 				}
 				// FYI: when i don't respond to a SYN, then a duplicate SYN is sent
-				ck := NewConnKeyByEndpoints(srcIP, srcPort)
 				p.Connections.Register(ck, rule, srcIP.String(), srcPort.String(), uint16(tcp.DstPort))
 				err = p.mangle(rawPacket, packet, &ip, &tcp, nil, &body)
 				if err != nil {
@@ -573,6 +580,23 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 					goto accept
 				}
 				return
+			} else {
+				err = p.Connections.updatePacketTime(ck)
+
+				if err != nil {
+					switch err {
+					case ErrUntrackedConnection:
+						/*
+							if !p.isIPNonLoopback(&ip.SrcIP) {
+								logger.Debugf("[freki   ] packet arrived for untracked connection. dropping.")
+								logger.Debugf("%+v %+v", ip.NetworkFlow(), tcp.TransportFlow())
+								goto drop
+							}
+						*/
+					default:
+						return
+					}
+				}
 			}
 		case layers.LayerTypeUDP:
 			srcPort := udp.TransportFlow().Src()
@@ -599,6 +623,10 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 
 accept:
 	return p.nfq.SetVerdict(rawPacket, netfilter.NF_ACCEPT)
+	/*
+	   drop:
+	   	return p.nfq.SetVerdict(rawPacket, netfilter.NF_DROP)
+	*/
 }
 
 func (p *Processor) applyRules(packet gopacket.Packet) (*Rule, error) {

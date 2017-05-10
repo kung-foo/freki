@@ -1,9 +1,13 @@
 package freki
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/gopacket"
@@ -13,6 +17,17 @@ import (
 // Ckey is a key representing a connection
 type Ckey [2]uint64
 
+var (
+	// TODO: should this match net.nf_conntrack_max?
+	initialTableSize = 262144
+	connTimeout      = time.Second * 600
+)
+
+var (
+	ErrUntrackedConnection = errors.New("untracked connection")
+)
+
+// TODO: look at using FlowFromEndpoints(...)
 // NewConnKeyByEndpoints returns a key from an endpoint pair
 func NewConnKeyByEndpoints(clientAddr gopacket.Endpoint, clientPort gopacket.Endpoint) Ckey {
 	if clientAddr.EndpointType() != layers.EndpointIPv4 {
@@ -42,20 +57,25 @@ func NewConnKeyFromNetConn(conn net.Conn) Ckey {
 
 // Metadata in the connection table
 type Metadata struct {
-	Added      time.Time
-	Rule       *Rule
-	TargetPort uint16
-	//TargetIP   net.IP
+	Added       time.Time
+	LastUpdated int64
+	Rule        *Rule
+	TargetPort  uint16
 }
 
 type connTable struct {
-	table map[Ckey]*Metadata
-	mtx   sync.RWMutex
+	table     map[Ckey]*Metadata
+	mtx       sync.RWMutex
+	softLimit int // softLimit controls when the cleanup routine is invoked
 }
 
-func newConnTable() *connTable {
+func newConnTable(softLimit int) *connTable {
+	if softLimit < initialTableSize {
+		softLimit = initialTableSize
+	}
 	ct := &connTable{
-		table: make(map[Ckey]*Metadata, 1024),
+		table:     make(map[Ckey]*Metadata, initialTableSize),
+		softLimit: softLimit,
 	}
 	return ct
 }
@@ -69,27 +89,54 @@ func (t *connTable) Register(ck Ckey, matchedRule *Rule, srcIP, srcPort string, 
 		// TODO: wut?
 	} else {
 		logger.Debugf("[contable] registering %s:%s->%d", srcIP, srcPort, targetPort)
-
+		now := time.Now()
 		t.table[ck] = &Metadata{
-			Added:      time.Now(),
-			Rule:       matchedRule,
-			TargetPort: targetPort,
-			//TargetIP:   targetIP,
+			Added:       now,
+			LastUpdated: now.UnixNano(),
+			Rule:        matchedRule,
+			TargetPort:  targetPort,
 		}
 	}
 }
 
-func (t *connTable) FlushOlderThan(s time.Duration) {
+func (t *connTable) FlushOlderOnes() int {
 	t.mtx.Lock()
 	defer t.mtx.Unlock()
 
-	threshold := time.Now().Add(-1 * s)
+	now := time.Now()
+	minutes := 30
+	flushed := 0
 
-	for ck, md := range t.table {
-		if md.Added.Before(threshold) {
-			delete(t.table, ck)
+	for minutes >= 0 {
+		duration := time.Duration(minutes) * time.Minute
+		threshold := now.Add(-1 * duration).UnixNano()
+
+		for ck, md := range t.table {
+			if md.LastUpdated < threshold {
+				delete(t.table, ck)
+				flushed++
+			}
+		}
+
+		if len(t.table) < t.softLimit {
+			break
+		} else {
+			minutes -= 10
 		}
 	}
+	return flushed
+}
+
+func (t *connTable) updatePacketTime(ck Ckey) error {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+
+	if _, ok := t.table[ck]; ok {
+		atomic.StoreInt64(&t.table[ck].LastUpdated, time.Now().UnixNano())
+		return nil
+	}
+
+	return ErrUntrackedConnection
 }
 
 // TODO: what happens when I return a *Metadata and then FlushOlderThan()
@@ -98,4 +145,17 @@ func (t *connTable) GetByFlow(ck Ckey) *Metadata {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
 	return t.table[ck]
+}
+
+func (t *connTable) dump() {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+
+	var buffer bytes.Buffer
+
+	for ck, md := range t.table {
+		buffer.WriteString(fmt.Sprintf("%v %+v\n", ck, md))
+	}
+
+	logger.Infof("\n%s", buffer.String())
 }

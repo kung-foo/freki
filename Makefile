@@ -47,4 +47,5 @@ system-test:
 	$(RUN_DC) up --build --abort-on-container-exit
 	$(RUN_DC) ps -q | xargs docker inspect -f '{{ .State.ExitCode }}' | grep -v 0 | wc -l | tr -d ' ' > /tmp/dc-exit-code.txt
 	$(RUN_DC) rm -f -v freki test
-	exit `cat /tmp/dc-exit-code.txt`
+	@echo 'Exit code: '`cat /tmp/dc-exit-code.txt`
+	@exit `cat /tmp/dc-exit-code.txt`
