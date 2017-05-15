@@ -144,6 +144,7 @@ func (t *connTable) updatePacketTime(ck Ckey) error {
 func (t *connTable) GetByFlow(ck Ckey) *Metadata {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
+
 	return t.table[ck]
 }
 

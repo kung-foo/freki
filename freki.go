@@ -381,6 +381,8 @@ func (p *Processor) mangle(
 			goto accept
 		}
 
+		// logger.Debugf("mangle out: ip:%v tcp:%v\rule:%v", ip, tcp, md.Rule)
+
 		switch md.Rule.ruleType {
 		case Rewrite, LogTCP, LogHTTP, ProxyTCP, UserConnHandler:
 			switch {
@@ -399,12 +401,15 @@ func (p *Processor) mangle(
 		}
 	} else {
 		// packets to honeypots
-		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), dstPort)
+		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
+
 		md := p.Connections.GetByFlow(ck)
 		if md == nil {
 			// not tracking
 			goto accept
 		}
+
+		// logger.Debugf("mangle in: ip:%v tcp:%v\rule:%v", ip, tcp, md.Rule)
 
 		var s Server
 		var ok bool
@@ -574,30 +579,31 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 				}
 				// FYI: when i don't respond to a SYN, then a duplicate SYN is sent
 				p.Connections.Register(ck, rule, srcIP.String(), srcPort.String(), uint16(tcp.DstPort))
-				err = p.mangle(rawPacket, packet, &ip, &tcp, nil, &body)
-				if err != nil {
-					logger.Errorf("[freki   ] %v", err)
-					goto accept
-				}
-				return
 			} else {
 				err = p.Connections.updatePacketTime(ck)
-
 				if err != nil {
-					switch err {
-					case ErrUntrackedConnection:
-						/*
+					/*
+						switch err {
+						case ErrUntrackedConnection:
 							if !p.isIPNonLoopback(&ip.SrcIP) {
 								logger.Debugf("[freki   ] packet arrived for untracked connection. dropping.")
 								logger.Debugf("%+v %+v", ip.NetworkFlow(), tcp.TransportFlow())
 								goto drop
 							}
-						*/
-					default:
-						return
-					}
+						default:
+							return
+						}
+					*/
 				}
 			}
+
+			err = p.mangle(rawPacket, packet, &ip, &tcp, nil, &body)
+			if err != nil {
+				logger.Errorf("[freki   ] %v", err)
+				goto accept
+			}
+			return
+
 		case layers.LayerTypeUDP:
 			srcPort := udp.TransportFlow().Src()
 			logger.Debugf("[freki   ] new UDP connection %s:%s->%d", srcIP.String(), srcPort.String(), udp.DstPort)
