@@ -384,7 +384,7 @@ func (p *Processor) mangle(
 		// logger.Debugf("mangle out: ip:%v tcp:%v\rule:%v", ip, tcp, md.Rule)
 
 		switch md.Rule.ruleType {
-		case Rewrite, LogTCP, LogHTTP, ProxyTCP, UserConnHandler:
+		case Rewrite, LogTCP, LogUDP, LogHTTP, ProxyTCP, UserConnHandler:
 			switch {
 			case tcp != nil:
 				tcp.SrcPort = layers.TCPPort(md.TargetPort)
@@ -401,7 +401,7 @@ func (p *Processor) mangle(
 		}
 	} else {
 		// packets to honeypots
-		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), tcp.TransportFlow().Src())
+		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), layer.TransportFlow().Src())
 
 		md := p.Connections.GetByFlow(ck)
 		if md == nil {
@@ -427,6 +427,18 @@ func (p *Processor) mangle(
 			// TODO: optimize?
 			if s, ok = p.servers["log.tcp"]; !ok {
 				return fmt.Errorf("No TCPLogger installed")
+			}
+			switch {
+			case tcp != nil:
+				tcp.DstPort = layers.TCPPort(s.Port())
+			case udp != nil:
+				udp.DstPort = layers.UDPPort(s.Port())
+			}
+			goto modified
+		case LogUDP:
+			// TODO: optimize?
+			if s, ok = p.servers["log.udp"]; !ok {
+				return fmt.Errorf("No UDPLogger installed")
 			}
 			switch {
 			case tcp != nil:
@@ -554,8 +566,9 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 	err = parser.DecodeLayers(packet.Data(), &foundLayerTypes)
 
 	if err != nil {
-		logger.Errorf("[freki   ] %v %v", err, foundLayerTypes)
-		goto accept
+		// We can safely ignore this error since we'll check the found layers
+		// below
+		logger.Debugf("[freki   ] DecodeLayers: %v %v", err, foundLayerTypes)
 	}
 
 	for _, layer := range foundLayerTypes {
@@ -616,6 +629,7 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 				// TODO: is this the correct default?
 				goto accept
 			}
+
 			ck := NewConnKeyByEndpoints(srcIP, srcPort)
 			p.Connections.Register(ck, rule, srcIP.String(), srcPort.String(), uint16(udp.DstPort))
 			err = p.mangle(rawPacket, packet, &ip, nil, &udp, &body)

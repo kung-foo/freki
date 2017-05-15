@@ -8,5 +8,8 @@ rules:
   - match: tcp portrange 7000-8000
     type: conn_handler
     target: echo
-  - match:
-    type: passthrough
+  - match: udp port 1337
+    type: log_udp
+  # TODO: make passthrough work!
+  # - match:
+  #  type: passthrough

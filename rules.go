@@ -21,6 +21,7 @@ const (
 	Rewrite RuleType = iota
 	ProxyTCP
 	LogTCP
+	LogUDP
 	LogHTTP
 	UserConnHandler
 	Drop
@@ -93,6 +94,8 @@ func initRule(idx int, rule *Rule, iface *pcap.Handle) error {
 		rule.ruleType = ProxyTCP
 	case "log_tcp":
 		rule.ruleType = LogTCP
+	case "log_udp":
+		rule.ruleType = LogUDP
 	case "log_http":
 		rule.ruleType = LogHTTP
 	case "conn_handler":

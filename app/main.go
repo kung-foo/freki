@@ -29,9 +29,10 @@ Options:
 
 const (
 	tcpLoggerPort      = 6000
-	httpLoggerPort     = 6001
-	tcpProxyPort       = 6002
-	userConnServerPort = 6003
+	udpLoggerPort      = 6001
+	httpLoggerPort     = 6002
+	tcpProxyPort       = 6003
+	userConnServerPort = 6005
 )
 
 func main() {
@@ -82,6 +83,7 @@ func mainEx(argv []string) {
 
 	// TODO: this all needs to move _inside_ freki
 	processor.AddServer(freki.NewTCPLogger(tcpLoggerPort, 1024))
+	processor.AddServer(freki.NewUDPLogger(udpLoggerPort, 1024))
 	processor.AddServer(freki.NewHTTPLogger(httpLoggerPort))
 	processor.AddServer(freki.NewTCPProxy(tcpProxyPort))
 	processor.AddServer(freki.NewUserConnServer(userConnServerPort))

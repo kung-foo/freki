@@ -82,5 +82,18 @@ func TestEndToEnd(t *testing.T) {
 			f(7000)
 			f(7999)
 		})
+
+		Convey("UDP should get logged", func() {
+			conn, err := net.DialTimeout("udp", fmt.Sprintf("freki:%d", 1337), time.Second)
+
+			So(err, ShouldBeNil)
+			So(conn, ShouldNotBeNil)
+
+			defer conn.Close()
+
+			fmt.Fprint(conn, "hello\n")
+
+			time.Sleep(time.Second * 5)
+		})
 	})
 }
