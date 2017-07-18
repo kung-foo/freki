@@ -23,6 +23,11 @@ import:
 - package: github.com/docopt/docopt-go
   version: ^0.6.2
 - package: github.com/docker/go-connections
-- package: github.com/docker/engine-api
+- package: github.com/moby/moby
+  version: ^17.5.0-ce-rc3
   subpackages:
   - client
+- package: github.com/docker/docker
+  version: ^17.5.0-ce-rc3
+  subpackages:
+  - api/types/container

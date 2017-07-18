@@ -68,7 +68,7 @@ func (p *TCPProxy) handleConnection(conn net.Conn) {
 		return
 	}
 
-	logger.Infof("[prxy.tcp] %s -> %s to %s", host, md.TargetPort, target.String())
+	logger.Infof("[prxy.tcp] %s -> %v to %s", host, md.TargetPort, target.String())
 
 	proxyConn, err := net.DialTimeout("tcp", target.Host, time.Second*5)
 

@@ -5,7 +5,7 @@ rules:
   - match: tcp dst port 10022
     type: rewrite
     target: 22
-  - match: tcp dst port 6379
+  - match: tcp dst port 379
     type: proxy
     target: docker://redis:6379
   - match: tcp dst port 666

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -12,15 +13,15 @@ import (
 
 	"golang.org/x/net/bpf"
 
-	"github.com/docker/engine-api/client"
-	"github.com/docker/engine-api/types"
-
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/docker/docker/api/types"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"github.com/kung-foo/freki/netfilter"
 	"github.com/pkg/errors"
+
+	"github.com/moby/moby/client"
 )
 
 const table = "raw"
@@ -166,12 +167,18 @@ func (p *Processor) Init() (err error) {
 	for _, rule := range p.rules {
 		if rule.ruleType == ProxyTCP {
 			if rule.targetURL.Scheme == "docker" {
-				logger.Debugf("[freki   ] Creating Docker client with version: %v", client.DefaultVersion)
 				var cli *client.Client
 				cli, err = client.NewEnvClient()
 				if err != nil {
 					return err
 				}
+
+				ver, err := cli.ServerVersion(context.Background())
+				if err != nil {
+					return err
+				}
+
+				logger.Debugf("[freki   ] Docker client: %s, server: %s/%s", cli.ClientVersion(), ver.Version, ver.APIVersion)
 
 				var containers []types.Container
 				containers, err = cli.ContainerList(context.Background(), types.ContainerListOptions{})
@@ -186,7 +193,8 @@ func (p *Processor) Init() (err error) {
 						// TODO: find correct network
 						addr := container.NetworkSettings.Networks["bridge"].IPAddress
 						logger.Debugf("[freki   ] mapping docker://%s:%d to tcp://%s:%d", rule.host, rule.port, addr, rule.port)
-						rule.targetURL.Host = fmt.Sprintf("tcp://%s:%d", addr, rule.port)
+						//rule.targetURL.Host = fmt.Sprintf("tcp://%s:%d", addr, rule.port)
+						rule.targetURL, _ = url.Parse(fmt.Sprintf("tcp://%s:%d", addr, rule.port))
 						rule.host = addr
 						found = true
 					}
