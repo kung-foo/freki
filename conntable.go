@@ -99,6 +99,11 @@ func (t *connTable) Register(ck Ckey, matchedRule *Rule, srcIP, srcPort string, 
 	}
 }
 
+// Length returns the number of tracked connections
+func (t *connTable) Length() int {
+	return len(t.table)
+}
+
 func (t *connTable) FlushOlderOnes() int {
 	t.mtx.Lock()
 	defer t.mtx.Unlock()
