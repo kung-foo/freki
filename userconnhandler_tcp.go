@@ -12,11 +12,13 @@ type UserConnServer struct {
 	port      uint
 	processor *Processor
 	listener  net.Listener
+	process   bool
 }
 
 func NewUserConnServer(port uint) *UserConnServer {
 	return &UserConnServer{
-		port: port,
+		port:    port,
+		process: true,
 	}
 }
 
@@ -39,7 +41,7 @@ func (h *UserConnServer) Start(processor *Processor) error {
 		return err
 	}
 
-	for {
+	for h.process {
 		conn, err := h.listener.Accept()
 		if err != nil {
 			logger.Errorf("[user.tcp] %v", err)
@@ -78,9 +80,11 @@ func (h *UserConnServer) Start(processor *Processor) error {
 			continue
 		}
 	}
+	return nil
 }
 
 func (h *UserConnServer) Shutdown() error {
+	h.process = false
 	if h.listener != nil {
 		return h.listener.Close()
 	}
