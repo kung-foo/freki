@@ -11,7 +11,7 @@ GID := $(shell id -g)
 
 default: build
 
-$(OUTPUT): glide.lock app/main.go *.go netfilter/*
+$(OUTPUT): go.sum app/main.go *.go netfilter/*
 	@mkdir -p bin/
 	$(BUILD_CMD)
 

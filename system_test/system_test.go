@@ -35,7 +35,7 @@ func TestEndToEnd(t *testing.T) {
 			f(8080)
 		})
 
-		Convey("Port 1137 should proxy to port.party:666", func() {
+		SkipConvey("Port 1137 should proxy to port.party:666", func() {
 			resp, err := http.Get("http://freki:1337/cors.json")
 			So(err, ShouldBeNil)
 			So(resp, ShouldNotBeNil)
