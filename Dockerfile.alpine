@@ -1,4 +1,4 @@
-FROM golang:1.8-alpine
+FROM golang:1.11-alpine
 
 RUN apk update && apk add libpcap-dev "libnetfilter_queue-dev>=1.0.0" git gcc libc-dev linux-headers
 RUN go get golang.org/x/net/bpf

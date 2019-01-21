@@ -9,6 +9,8 @@ BUILD_CMD := go build -o $(OUTPUT) -ldflags "-X \"main.VERSION=$(VERSIONSTRING)\
 UID := $(shell id -u)
 GID := $(shell id -g)
 
+export GO111MODULE=on
+
 default: build
 
 $(OUTPUT): go.sum app/main.go *.go netfilter/*
