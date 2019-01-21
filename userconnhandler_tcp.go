@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// UserConnServer type struct
 type UserConnServer struct {
 	port      uint
 	processor *Processor
@@ -15,6 +16,7 @@ type UserConnServer struct {
 	process   bool
 }
 
+// NewUserConnServer returns a user defined connection server type
 func NewUserConnServer(port uint) *UserConnServer {
 	return &UserConnServer{
 		port:    port,
@@ -22,14 +24,17 @@ func NewUserConnServer(port uint) *UserConnServer {
 	}
 }
 
+// Port of the connection server
 func (h *UserConnServer) Port() uint {
 	return h.port
 }
 
+// Type of the connection server
 func (h *UserConnServer) Type() string {
 	return "user.tcp"
 }
 
+// Start the connection server
 func (h *UserConnServer) Start(processor *Processor) error {
 	h.processor = processor
 
@@ -48,7 +53,10 @@ func (h *UserConnServer) Start(processor *Processor) error {
 			continue
 		}
 
-		ck := NewConnKeyFromNetConn(conn)
+		ck, err := NewConnKeyFromNetConn(conn)
+		if err != nil {
+			return err
+		}
 		md := h.processor.Connections.GetByFlow(ck)
 
 		if md == nil {
@@ -83,6 +91,7 @@ func (h *UserConnServer) Start(processor *Processor) error {
 	return nil
 }
 
+// Shutdown the connection server
 func (h *UserConnServer) Shutdown() error {
 	h.process = false
 	if h.listener != nil {

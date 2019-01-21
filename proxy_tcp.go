@@ -9,26 +9,31 @@ import (
 	"github.com/pkg/errors"
 )
 
+// TCPProxy type struct
 type TCPProxy struct {
 	port      uint
 	processor *Processor
 	listener  net.Listener
 }
 
+// NewTCPProxy returns a new TCP proxy
 func NewTCPProxy(port uint) *TCPProxy {
 	return &TCPProxy{
 		port: port,
 	}
 }
 
+// Port of the TCP proxy
 func (p *TCPProxy) Port() uint {
 	return p.port
 }
 
+// Type of the proxy
 func (p *TCPProxy) Type() string {
 	return "proxy.tcp"
 }
 
+// Start the proxy
 func (p *TCPProxy) Start(processor *Processor) error {
 	p.processor = processor
 
@@ -54,7 +59,11 @@ func (p *TCPProxy) Start(processor *Processor) error {
 
 func (p *TCPProxy) handleConnection(conn net.Conn) {
 	host, port, _ := net.SplitHostPort(conn.RemoteAddr().String())
-	ck := NewConnKeyByString(host, port)
+	ck, err := NewConnKeyByString(host, port)
+	if err != nil {
+		logger.Error(err)
+		return
+	}
 	md := p.processor.Connections.GetByFlow(ck)
 	if md == nil {
 		logger.Warnf("[prxy.tcp] untracked connection: %s", conn.RemoteAddr().String())
@@ -92,6 +101,7 @@ func (p *TCPProxy) handleConnection(conn net.Conn) {
 	}()
 }
 
+// Shutdown the proxy
 func (p *TCPProxy) Shutdown() error {
 	if p.listener != nil {
 		return p.listener.Close()

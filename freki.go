@@ -11,17 +11,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/net/bpf"
-
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/docker/docker/api/types"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"github.com/kung-foo/freki/netfilter"
-	"github.com/pkg/errors"
-
 	"github.com/moby/moby/client"
+	"github.com/pkg/errors"
+	"golang.org/x/net/bpf"
 )
 
 const table = "raw"
@@ -375,14 +373,17 @@ func (p *Processor) mangle(
 	} else if udp != nil {
 		layer = udp
 	} else {
-		panic("Missing transport layer")
+		return errors.New("Missing transport layer")
 	}
 
 	dstPort = layer.TransportFlow().Dst()
 
 	if p.isIPNonLoopback(&ip.SrcIP) {
 		// packets back to client
-		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Dst(), dstPort)
+		ck, err := NewConnKeyByEndpoints(ip.NetworkFlow().Dst(), dstPort)
+		if err != nil {
+			return err
+		}
 		md := p.Connections.GetByFlow(ck)
 		if md == nil {
 			// not tracking
@@ -409,7 +410,10 @@ func (p *Processor) mangle(
 		}
 	} else {
 		// packets to honeypots
-		ck := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), layer.TransportFlow().Src())
+		ck, err := NewConnKeyByEndpoints(ip.NetworkFlow().Src(), layer.TransportFlow().Src())
+		if err != nil {
+			return err
+		}
 
 		md := p.Connections.GetByFlow(ck)
 		if md == nil {
@@ -585,7 +589,10 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 		switch layer {
 		case layers.LayerTypeTCP:
 			srcPort := tcp.TransportFlow().Src()
-			ck := NewConnKeyByEndpoints(srcIP, srcPort)
+			ck, err := NewConnKeyByEndpoints(srcIP, srcPort)
+			if err != nil {
+				return err
+			}
 			// TODO: validate logic
 			if tcp.SYN && !tcp.ACK {
 				logger.Debugf("[freki   ] new TCP connection %s:%s->%d", srcIP.String(), srcPort.String(), tcp.DstPort)
@@ -623,7 +630,7 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 				logger.Errorf("[freki   ] %v", err)
 				goto accept
 			}
-			return
+			return nil
 
 		case layers.LayerTypeUDP:
 			srcPort := udp.TransportFlow().Src()
@@ -638,14 +645,17 @@ func (p *Processor) onPacket(rawPacket *netfilter.RawPacket) (err error) {
 				goto accept
 			}
 
-			ck := NewConnKeyByEndpoints(srcIP, srcPort)
+			ck, err := NewConnKeyByEndpoints(srcIP, srcPort)
+			if err != nil {
+				return err
+			}
 			p.Connections.Register(ck, rule, srcIP.String(), srcPort.String(), uint16(udp.DstPort))
 			err = p.mangle(rawPacket, packet, &ip, nil, &udp, &body)
 			if err != nil {
 				logger.Errorf("[freki   ] %v", err)
 				goto accept
 			}
-			return
+			return nil
 		}
 	}
 

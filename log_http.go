@@ -37,8 +37,18 @@ func (h *HTTPLogger) Start(p *Processor) error {
 	h.processor = p
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		host, port, _ := net.SplitHostPort(r.RemoteAddr)
-		ck := NewConnKeyByString(host, port)
+		host, port, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			logger.Error(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		ck, err := NewConnKeyByString(host, port)
+		if err != nil {
+			logger.Error(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		md := h.processor.Connections.GetByFlow(ck)
 		logger.Infof("[log.http] %s -> %d\n%s %s\n%v",
 			host,
@@ -48,7 +58,12 @@ func (h *HTTPLogger) Start(p *Processor) error {
 
 		if r.Body != nil {
 			defer r.Body.Close()
-			body, _ := ioutil.ReadAll(r.Body)
+			body, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				logger.Error(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			if len(body) > 0 {
 				logger.Infof("[log.http] %s -> %d\n%s",
 					host,
@@ -57,10 +72,8 @@ func (h *HTTPLogger) Start(p *Processor) error {
 				)
 			}
 		}
-
 		fmt.Fprintf(w, "OK\n")
 	})
-
 	return http.ListenAndServe(fmt.Sprintf(":%d", h.port), nil)
 }
 
