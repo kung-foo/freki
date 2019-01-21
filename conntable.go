@@ -29,29 +29,35 @@ var (
 
 // TODO: look at using FlowFromEndpoints(...)
 // NewConnKeyByEndpoints returns a key from an endpoint pair
-func NewConnKeyByEndpoints(clientAddr gopacket.Endpoint, clientPort gopacket.Endpoint) Ckey {
+func NewConnKeyByEndpoints(clientAddr gopacket.Endpoint, clientPort gopacket.Endpoint) (Ckey, error) {
 	if clientAddr.EndpointType() != layers.EndpointIPv4 {
-		panic("clientAddr endpoint must be of type layers.EndpointIPv4")
+		return Ckey{}, errors.New("clientAddr endpoint must be of type layers.EndpointIPv4")
 	}
 
 	if clientPort.EndpointType() != layers.EndpointTCPPort && clientPort.EndpointType() != layers.EndpointUDPPort {
-		panic("clientPort endpoint must be of type layers.EndpointTCPPort or layers.EndpointUDPPort")
+		return Ckey{}, errors.New("clientPort endpoint must be of type layers.EndpointTCPPort or layers.EndpointUDPPort")
 	}
 
-	return Ckey{clientAddr.FastHash(), clientPort.FastHash()}
+	return Ckey{clientAddr.FastHash(), clientPort.FastHash()}, nil
 }
 
 // NewConnKeyByString returns a key from a connection pair as string
-func NewConnKeyByString(host, port string) Ckey {
+func NewConnKeyByString(host, port string) (Ckey, error) {
 	clientAddr := layers.NewIPEndpoint(net.ParseIP(host).To4())
-	p, _ := strconv.Atoi(port)
+	p, err := strconv.Atoi(port)
+	if err != nil {
+		return Ckey{}, err
+	}
 	clientPort := layers.NewTCPPortEndpoint(layers.TCPPort(p))
 	return NewConnKeyByEndpoints(clientAddr, clientPort)
 }
 
 // NewConnKeyFromNetConn returns a key from a connection
-func NewConnKeyFromNetConn(conn net.Conn) Ckey {
-	host, port, _ := net.SplitHostPort(conn.RemoteAddr().String())
+func NewConnKeyFromNetConn(conn net.Conn) (Ckey, error) {
+	host, port, err := net.SplitHostPort(conn.RemoteAddr().String())
+	if err != nil {
+		return Ckey{}, err
+	}
 	return NewConnKeyByString(host, port)
 }
 

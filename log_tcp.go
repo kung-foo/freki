@@ -51,7 +51,6 @@ func (h *TCPLogger) Start(p *Processor) error {
 
 	for {
 		conn, err := h.listener.Accept()
-
 		if err != nil {
 			logger.Error(errors.Wrap(err, h.Type()))
 			continue
@@ -67,14 +66,22 @@ func (h *TCPLogger) Start(p *Processor) error {
 
 			conn.SetReadDeadline(time.Now().Add(readDeadline))
 			host, port, _ := net.SplitHostPort(conn.RemoteAddr().String())
-			ck := NewConnKeyByString(host, port)
+			ck, err := NewConnKeyByString(host, port)
+			if err != nil {
+				logger.Error(err)
+				return
+			}
 			md := h.processor.Connections.GetByFlow(ck)
 			if md == nil {
 				logger.Warnf("[log.tcp ] untracked connection: %s", conn.RemoteAddr().String())
 				return
 			}
 			buffer := make([]byte, h.readSize)
-			n, _ := conn.Read(buffer)
+			n, err := conn.Read(buffer)
+			if err != nil {
+				logger.Error(err)
+				return
+			}
 			if n > 0 {
 				logger.Infof("[log.tcp ] %s -> %s\n%s", host, md.TargetPort, hex.Dump(buffer[0:n]))
 			} else {
