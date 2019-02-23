@@ -83,9 +83,9 @@ func (h *TCPLogger) Start(p *Processor) error {
 				return
 			}
 			if n > 0 {
-				logger.Infof("[log.tcp ] %s -> %s\n%s", host, md.TargetPort, hex.Dump(buffer[0:n]))
+				logger.Infof("[log.tcp ] %s -> %v\n%s", host, md.TargetPort, hex.Dump(buffer[0:n]))
 			} else {
-				logger.Infof("[log.tcp ] %s -> %s", host, md.TargetPort)
+				logger.Infof("[log.tcp ] %s -> %v", host, md.TargetPort)
 			}
 		}(conn)
 	}
