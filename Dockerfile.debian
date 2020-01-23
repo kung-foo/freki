@@ -1,6 +1,8 @@
-FROM golang:1.11
+FROM golang:1.13
 
 RUN apt-get update && apt-get install -yq libpcap-dev libnetfilter-queue-dev
 RUN go get golang.org/x/net/bpf
 RUN go get golang.org/x/net/context
 RUN go get golang.org/x/net/proxy
+
+ENV XDG_CACHE_HOME=/tmp/.cache

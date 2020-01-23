@@ -1,11 +1,18 @@
 language: go
+
 go:
   - 1.11.x
+  - 1.12.x
+  - 1.13.x
+
 sudo: required
+
 services:
   - docker
+
 env:
   DOCKER_COMPOSE_VERSION: 1.11.2
+
 before_install:
   - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
   - sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
@@ -18,6 +25,7 @@ before_install:
   - go get golang.org/x/net/bpf
   - go get golang.org/x/net/context
   - go get golang.org/x/net/proxy
+
 script:
   - make
   - make system-test

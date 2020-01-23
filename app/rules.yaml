@@ -22,5 +22,7 @@ rules:
     type: drop
   - match: tcp
     type: log_tcp
+  - match: udp
+    type: log_udp
   - match:
     type: passthrough

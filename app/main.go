@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"sync"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	docopt "github.com/docopt/docopt-go"
 	"github.com/kung-foo/freki"
 )
