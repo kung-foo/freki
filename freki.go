@@ -379,14 +379,14 @@ func (p *Processor) mangle(
 		case LogTCP:
 			// TODO: optimize?
 			if s, ok = p.servers["log.tcp"]; !ok {
-				return fmt.Errorf("No TCPLogger installed")
+				return errors.New("No TCPLogger installed")
 			}
 			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
 		case LogHTTP:
 			// TODO: optimize?
 			if s, ok = p.servers["log.http"]; !ok {
-				return fmt.Errorf("No HTTPLogger installed")
+				return errors.New("No HTTPLogger installed")
 			}
 			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
@@ -394,13 +394,13 @@ func (p *Processor) mangle(
 		case ProxyTCP:
 			// TODO: optimize?
 			if s, ok = p.servers["proxy.tcp"]; !ok {
-				return fmt.Errorf("No TCPProxy installed")
+				return errors.New("No TCPProxy installed")
 			}
 			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified
 		case UserConnHandler:
 			if s, ok = p.servers["user.tcp"]; !ok {
-				return fmt.Errorf("No ConnHandler installed")
+				return errors.New("No ConnHandler installed")
 			}
 			tcp.DstPort = layers.TCPPort(s.Port())
 			goto modified

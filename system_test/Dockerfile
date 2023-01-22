@@ -1,10 +1,6 @@
-FROM golang:1.8-alpine
+FROM golang:1.18-alpine
 
-RUN apk update && apk add curl build-base iptables libpcap-dev "libnetfilter_queue-dev>=1.0.0" git gcc libc-dev linux-headers
-RUN go get golang.org/x/net/bpf
-RUN go get golang.org/x/net/context
-RUN go get golang.org/x/net/proxy
-RUN go get github.com/smartystreets/goconvey
+RUN apk update && apk add curl build-base iptables libpcap-dev libnetfilter_queue-dev git gcc libc-dev linux-headers
 
 WORKDIR /go/src/github.com/kung-foo/freki
 
