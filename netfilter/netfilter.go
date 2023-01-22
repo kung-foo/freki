@@ -58,7 +58,7 @@ type RawPacket struct {
 	Data []byte
 }
 
-// Verdict is a type alias of u_int32_t
+// Verdict is a type alias of uint32_t
 type Verdict C.uint
 
 // NF_* verdicts
@@ -112,17 +112,17 @@ func New(queueID uint16, maxPacketsInQueue uint32, packetSize uint32) (nfq *Queu
 		return
 	}
 
-	if nfq.qh, err = C.CreateQueue(nfq.h, C.u_int16_t(queueID)); err != nil || nfq.qh == nil {
+	if nfq.qh, err = C.CreateQueue(nfq.h, C.uint16_t(queueID)); err != nil || nfq.qh == nil {
 		err = errors.Wrap(err, "netfilter: unable to create nfq queue.")
 		return
 	}
 
-	if ret, err = C.nfq_set_queue_maxlen(nfq.qh, C.u_int32_t(maxPacketsInQueue)); err != nil || ret < 0 {
+	if ret, err = C.nfq_set_queue_maxlen(nfq.qh, C.uint32_t(maxPacketsInQueue)); err != nil || ret < 0 {
 		err = errors.Wrap(err, "netfilter: unable to set nfq max queue length.")
 		return
 	}
 
-	if C.nfq_set_mode(nfq.qh, C.u_int8_t(2), C.uint(packetSize)) < 0 {
+	if C.nfq_set_mode(nfq.qh, C.uint8_t(2), C.uint(packetSize)) < 0 {
 		err = errors.Wrap(err, "netfilter: unable to set packet copy mode.")
 		return
 	}
@@ -163,8 +163,8 @@ func (nfq *Queue) SetVerdict(packet *RawPacket, verdict Verdict) (err error) {
 	// TODO: get error
 	C.nfq_set_verdict(
 		nfq.qh,
-		C.u_int32_t(packet.ID),
-		C.u_int32_t(verdict),
+		C.uint32_t(packet.ID),
+		C.uint32_t(verdict),
 		0,
 		nil,
 	)
@@ -176,9 +176,9 @@ func (nfq *Queue) SetVerdict(packet *RawPacket, verdict Verdict) (err error) {
 func (nfq *Queue) SetVerdictModifed(packet *RawPacket, buffer []byte, verdict Verdict) (err error) {
 	C.nfq_set_verdict(
 		nfq.qh,
-		C.u_int32_t(packet.ID),
-		C.u_int32_t(verdict),
-		C.u_int32_t(len(buffer)),
+		C.uint32_t(packet.ID),
+		C.uint32_t(verdict),
+		C.uint32_t(len(buffer)),
 		(*C.uchar)(unsafe.Pointer(&buffer[0])),
 	)
 	return
