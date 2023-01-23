@@ -26,5 +26,5 @@ jobs:
       - name: Test
         run: go test -v
       
-      - name: Sysmte
+      - name: System Test
         run: make system-test
