@@ -10,6 +10,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Dependencies
+        run: sudo apt install libnetfilter-queue-dev libpcap-dev iptables
+      
       - uses: actions/checkout@v3
 
       - name: Set up Go
