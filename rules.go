@@ -2,7 +2,7 @@ package freki
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -53,7 +53,7 @@ func (r *Rule) String() string {
 }
 
 func ReadRulesFromFile(file *os.File) ([]*Rule, error) {
-	data, err := ioutil.ReadAll(file)
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return nil, err
 	}

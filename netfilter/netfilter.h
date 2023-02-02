@@ -53,7 +53,7 @@ static int nf_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct n
     return ret;
 }
 
-static inline struct nfq_q_handle* CreateQueue(struct nfq_handle *h, u_int16_t queue)
+static inline struct nfq_q_handle* CreateQueue(struct nfq_handle *h, uint16_t queue)
 {
     return nfq_create_queue(h, queue, &nf_callback, (void *)(intptr_t)queue);
 }

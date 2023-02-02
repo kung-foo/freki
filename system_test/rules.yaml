@@ -4,7 +4,7 @@ rules:
     type: log_http
   - match: tcp port 1337
     type: proxy
-    target: tcp://port.party:666
+    target: tcp://httpbin.org:443
   - match: tcp portrange 7000-8000
     type: conn_handler
     target: echo

@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"testing"
@@ -25,7 +25,7 @@ func TestEndToEnd(t *testing.T) {
 
 				So(resp.StatusCode, ShouldEqual, 200)
 
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				So(err, ShouldBeNil)
 				So(bytes.Equal(body, []byte("OK\n")), ShouldBeTrue)
 				resp.Body.Close()
@@ -36,21 +36,20 @@ func TestEndToEnd(t *testing.T) {
 		})
 
 		Convey("Port 1137 should proxy to port.party:666", func() {
-			resp, err := http.Get("http://freki:1337/cors.json")
+			resp, err := http.Get("http://freki:1337/json")
 			So(err, ShouldBeNil)
 			So(resp, ShouldNotBeNil)
 
 			So(resp.StatusCode, ShouldEqual, 200)
 
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			So(err, ShouldBeNil)
 
-			j := make(map[string]int)
+			j := make(map[string]string)
 
 			So(json.Unmarshal(body, &j), ShouldBeNil)
 
-			So(j, ShouldContainKey, "Port")
-			So(j["Port"], ShouldEqual, 666)
+			So(j, ShouldContainKey, "slideshow")
 
 			resp.Body.Close()
 		})

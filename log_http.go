@@ -3,7 +3,7 @@ package freki
 import (
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 )
@@ -43,7 +43,7 @@ func (h *HTTPLogger) Start(p *Processor) error {
 
 		if r.Body != nil {
 			defer r.Body.Close()
-			body, _ := ioutil.ReadAll(r.Body)
+			body, _ := io.ReadAll(r.Body)
 			if len(body) > 0 {
 				logger.Infof("[log.http] %s -> %s\n%s",
 					host,
